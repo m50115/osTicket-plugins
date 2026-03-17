@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//private/tmp/**)",
+      "Bash(unzip -l /Users/devuser/www/osTickets/include/plugins/mobile-api.phar)",
+      "Bash(cd:*)",
+      "Bash(cp:*)",
+      "Bash(php:*)",
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
+      "Bash(mysql:*)",
+      "Bash(flutter:*)"
+    ]
+  }
+}
