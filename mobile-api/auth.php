@@ -82,6 +82,27 @@ class MobileAuth {
         exit;
     }
 
+    static function handleVerify() {
+        header('Content-Type: application/json');
+        header('Cache-Control: no-store');
+
+        $token   = self::tokenFromRequest();
+        $staffId = self::verify($token);
+        if (!$staffId) {
+            http_response_code(401);
+            echo json_encode(array('error' => 'Invalid or expired token'));
+            exit;
+        }
+        $staff = Staff::lookup($staffId);
+        if (!$staff || !$staff->isActive()) {
+            http_response_code(401);
+            echo json_encode(array('error' => 'Account is not active'));
+            exit;
+        }
+        echo json_encode(array('valid' => true));
+        exit;
+    }
+
     static function handleLogout() {
         // Stateless — the client simply discards the token.
         // Nothing to invalidate server-side.

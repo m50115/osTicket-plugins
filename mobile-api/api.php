@@ -32,6 +32,13 @@ class MobileApiPlugin extends Plugin {
             })
         );
 
+        // Token verification — called by app on startup to validate stored token
+        $dispatcher->append(
+            url_get('^/mobile/auth/verify$', function() {
+                MobileAuth::handleVerify();
+            })
+        );
+
         // Staff login
         $dispatcher->append(
             url_post('^/mobile/auth/login$', function() {
