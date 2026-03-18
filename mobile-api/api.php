@@ -12,6 +12,7 @@ require_once(INCLUDE_DIR . 'class.plugin.php');
 require_once(__DIR__ . '/auth.php');
 require_once(__DIR__ . '/tickets.php');
 require_once(__DIR__ . '/topics.php');
+require_once(__DIR__ . '/departments.php');
 require_once(__DIR__ . '/users.php');
 class MobileApiPlugin extends Plugin {
 
@@ -57,6 +58,13 @@ class MobileApiPlugin extends Plugin {
         $dispatcher->append(
             url_get('^/mobile/topics$', function() {
                 MobileTopics::handleList();
+            })
+        );
+
+        // Departments (needed by app for ticket creation)
+        $dispatcher->append(
+            url_get('^/mobile/departments$', function() {
+                MobileDepartments::handleList();
             })
         );
 
