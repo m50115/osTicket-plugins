@@ -28,10 +28,37 @@ class MobileAuth {
     // HTTP handlers
     // ------------------------------------------------------------------
 
+    // Rate limiting: max failed attempts per IP before lockout
+    const MAX_LOGIN_ATTEMPTS = 5;
+    const LOCKOUT_SECONDS = 1800; // 30 minutes
+
     static function handleLogin() {
         header('Content-Type: application/json');
         header('Cache-Control: no-store, no-cache, must-revalidate');
         header('Pragma: no-cache');
+        header('X-Content-Type-Options: nosniff');
+
+        // SEC: Rate limiting — track failed login attempts by IP
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $lockFile = sys_get_temp_dir() . '/mobile_api_login_' . md5($ip) . '.json';
+
+        if (file_exists($lockFile)) {
+            $lockData = json_decode(file_get_contents($lockFile), true);
+            if ($lockData && isset($lockData['count']) && isset($lockData['last'])) {
+                $elapsed = time() - (int) $lockData['last'];
+                if ($lockData['count'] >= self::MAX_LOGIN_ATTEMPTS && $elapsed < self::LOCKOUT_SECONDS) {
+                    $remaining = self::LOCKOUT_SECONDS - $elapsed;
+                    http_response_code(429);
+                    header('Retry-After: ' . $remaining);
+                    echo json_encode(array('error' => 'Too many login attempts. Try again later.'));
+                    exit;
+                }
+                // Reset counter if lockout expired
+                if ($elapsed >= self::LOCKOUT_SECONDS) {
+                    @unlink($lockFile);
+                }
+            }
+        }
 
         $body     = json_decode(file_get_contents('php://input'), true);
         $username = isset($body['username']) ? trim($body['username']) : '';
@@ -49,12 +76,24 @@ class MobileAuth {
         $user = StaffAuthenticationBackend::process($username, $password, $errors);
 
         if (!$user) {
+            // SEC: Increment failed attempt counter
+            $lockData = array('count' => 1, 'last' => time());
+            if (file_exists($lockFile)) {
+                $existing = json_decode(file_get_contents($lockFile), true);
+                if ($existing && isset($existing['count'])) {
+                    $lockData['count'] = $existing['count'] + 1;
+                }
+            }
+            file_put_contents($lockFile, json_encode($lockData));
+
             http_response_code(401);
-            // SEC-016: Always return a generic message regardless of the
-            // specific failure reason (wrong password, LDAP error, account
-            // locked, etc.) to avoid leaking system information.
             echo json_encode(array('error' => 'Invalid credentials'));
             exit;
+        }
+
+        // SEC: Clear failed attempts on successful login
+        if (file_exists($lockFile)) {
+            @unlink($lockFile);
         }
 
         // Load the full Staff object to build the response payload.

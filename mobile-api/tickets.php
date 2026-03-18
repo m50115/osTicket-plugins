@@ -321,7 +321,12 @@ class MobileTickets {
             }
             foreach ($uploaded as $f) {
                 if ($f['error'] !== UPLOAD_ERR_OK) continue;
-                if ($f['size'] > self::MAX_FILE_SIZE) continue; // skip oversized
+                // SEC: Reject oversized files with explicit error instead of silent skip
+                if ($f['size'] > self::MAX_FILE_SIZE) {
+                    http_response_code(400);
+                    echo json_encode(array('error' => 'File exceeds maximum size of 1 MB'));
+                    exit;
+                }
                 // SEC — validate MIME via finfo, not client-supplied type
                 $mime = self::detectMime($f['tmp_name']);
                 if (!in_array($mime, self::$ALLOWED_MIME_TYPES, true)) continue;
@@ -394,9 +399,15 @@ class MobileTickets {
         $q     = isset($_GET['q']) ? trim($_GET['q']) : '';
         $limit = min(50, max(1, (int) ($_GET['limit'] ?? 25)));
 
+        // SEC: Validate search query length — min 2, max 100
         if (strlen($q) < 2) {
             http_response_code(400);
             echo json_encode(array('error' => 'Query must be at least 2 characters'));
+            exit;
+        }
+        if (strlen($q) > 100) {
+            http_response_code(400);
+            echo json_encode(array('error' => 'Query too long (max 100 characters)'));
             exit;
         }
 
@@ -501,8 +512,11 @@ class MobileTickets {
      * Verify Bearer token and return Staff object, or exit with 401.
      */
     static function requireAuth() {
-        // S5 — prevent MIME-type sniffing on all authenticated responses
+        // SEC: Security headers on all authenticated responses
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: DENY');
+        header('Referrer-Policy: strict-origin-when-cross-origin');
+        header('Cache-Control: no-store');
 
         $token = MobileAuth::tokenFromRequest();
         $staffId = MobileAuth::verify($token);
