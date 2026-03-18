@@ -210,14 +210,9 @@ class MobileTickets {
                         'type' => $file ? $file->getType() : 'application/octet-stream',
                     );
                     if ($file) {
-                        $url = $file->getDownloadUrl();
-                        // Make URL absolute if it's relative
-                        if ($url && strpos($url, 'http') !== 0) {
-                            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-                            $host = $_SERVER['HTTP_HOST'];
-                            $url = $scheme . '://' . $host . '/' . ltrim($url, '/');
-                        }
-                        $item['download_url'] = $url;
+                        // Use the file's key (hash) — the app downloads
+                        // via GET /api/mobile/files/{key} with Bearer auth.
+                        $item['file_key'] = $file->getKey();
                     }
                     $attachments[] = $item;
                 }

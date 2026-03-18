@@ -14,6 +14,7 @@ require_once(__DIR__ . '/tickets.php');
 require_once(__DIR__ . '/topics.php');
 require_once(__DIR__ . '/departments.php');
 require_once(__DIR__ . '/users.php');
+require_once(__DIR__ . '/files.php');
 class MobileApiPlugin extends Plugin {
 
     function init() {
@@ -107,6 +108,13 @@ class MobileApiPlugin extends Plugin {
         $dispatcher->append(
             url_post('^/mobile/tickets/(\d+)/reply$', function($id) {
                 MobileTickets::handleReply($id);
+            })
+        );
+
+        // File download (authenticated via Bearer token)
+        $dispatcher->append(
+            url_get('^/mobile/files/([A-Za-z0-9_-]+)$', function($hash) {
+                MobileFiles::handleDownload($hash);
             })
         );
 
