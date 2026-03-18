@@ -371,6 +371,73 @@ class MobileTickets {
     }
 
     // ------------------------------------------------------------------
+    // GET /api/mobile/tickets/search?q=<query>
+    //
+    // Searches tickets by number, subject, or user name/email.
+    // Returns same format as handleList().
+    // ------------------------------------------------------------------
+
+    static function handleSearch() {
+        header('Content-Type: application/json');
+
+        $staff = self::requireAuth();
+
+        $q     = isset($_GET['q']) ? trim($_GET['q']) : '';
+        $limit = min(50, max(1, (int) ($_GET['limit'] ?? 25)));
+
+        if (strlen($q) < 2) {
+            http_response_code(400);
+            echo json_encode(array('error' => 'Query must be at least 2 characters'));
+            exit;
+        }
+
+        // Build visibility filter — same as osTicket staff panel
+        global $thisstaff;
+        $thisstaff = $staff;
+        $visibility = $staff->getTicketsVisibility();
+
+        $tickets = array();
+
+        // Strategy 1: If query looks like a ticket number (digits only)
+        if (preg_match('/^\d{2,}$/', $q)) {
+            $hits = Ticket::objects()
+                ->filter($visibility)
+                ->filter(array('number__startswith' => $q))
+                ->order_by('-updated')
+                ->limit($limit);
+
+            foreach ($hits as $t) {
+                $tickets[] = self::summarize($t);
+            }
+        }
+
+        // Strategy 2: Search by subject, user name, or email (LIKE)
+        if (empty($tickets)) {
+            $like = '%' . $q . '%';
+            $hits = Ticket::objects()
+                ->filter($visibility)
+                ->filter(Q::any(array(
+                    'cdata__subject__contains' => $q,
+                    'user__name__contains'     => $q,
+                    'user__default_email__address__contains' => $q,
+                    'number__startswith'        => $q,
+                )))
+                ->order_by('-updated')
+                ->limit($limit);
+
+            foreach ($hits as $t) {
+                $tickets[] = self::summarize($t);
+            }
+        }
+
+        echo json_encode(array(
+            'data' => $tickets,
+            'meta' => array('total' => count($tickets), 'query' => $q),
+        ));
+        exit;
+    }
+
+    // ------------------------------------------------------------------
     // File upload helpers
     // ------------------------------------------------------------------
 

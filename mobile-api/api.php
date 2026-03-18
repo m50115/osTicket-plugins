@@ -67,6 +67,13 @@ class MobileApiPlugin extends Plugin {
             })
         );
 
+        // Ticket search
+        $dispatcher->append(
+            url_get('^/mobile/tickets/search$', function() {
+                MobileTickets::handleSearch();
+            })
+        );
+
         // Ticket list
         $dispatcher->append(
             url_get('^/mobile/tickets$', function() {
