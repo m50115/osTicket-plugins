@@ -203,9 +203,23 @@ class MobileTickets {
 
                 $attachments = array();
                 foreach ($entry->getAttachments() as $att) {
-                    $attachments[] = array(
+                    $file = $att->getFile();
+                    $item = array(
                         'name' => $att->getFilename(),
+                        'size' => $file ? (int) $file->getSize() : 0,
+                        'type' => $file ? $file->getType() : 'application/octet-stream',
                     );
+                    if ($file) {
+                        $url = $file->getDownloadUrl();
+                        // Make URL absolute if it's relative
+                        if ($url && strpos($url, 'http') !== 0) {
+                            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                            $host = $_SERVER['HTTP_HOST'];
+                            $url = $scheme . '://' . $host . '/' . ltrim($url, '/');
+                        }
+                        $item['download_url'] = $url;
+                    }
+                    $attachments[] = $item;
                 }
 
                 $body_obj = $entry->getBody();
