@@ -15,6 +15,7 @@ require_once(__DIR__ . '/topics.php');
 require_once(__DIR__ . '/departments.php');
 require_once(__DIR__ . '/users.php');
 require_once(__DIR__ . '/files.php');
+require_once(__DIR__ . '/staff.php');
 class MobileApiPlugin extends Plugin {
 
     function init() {
@@ -66,6 +67,13 @@ class MobileApiPlugin extends Plugin {
         $dispatcher->append(
             url_get('^/mobile/departments$', function() {
                 MobileDepartments::handleList();
+            })
+        );
+
+        // Staff list (for ticket assignment picker)
+        $dispatcher->append(
+            url_get('^/mobile/staff$', function() {
+                MobileStaff::handleList();
             })
         );
 

@@ -154,6 +154,15 @@ class MobileTickets {
             $vars['deptId'] = (int) $body['deptId'];
         }
 
+        // Explicit assignee from mobile client — validated against active staff
+        if (isset($body['staffId'])) {
+            $sid = (int) $body['staffId'];
+            $assignee = Staff::lookup($sid);
+            if ($assignee && $assignee->isActive()) {
+                $vars['staffId'] = $sid;
+            }
+        }
+
         $errors = array();
         $ticket = Ticket::create($vars, $errors, 'staff', false, false);
 
@@ -162,6 +171,13 @@ class MobileTickets {
             http_response_code(422);
             echo json_encode(array('error' => 'Could not create ticket'));
             exit;
+        }
+
+        // Force department if explicitly requested — ticket filters may have
+        // re-routed the ticket to a different dept during Ticket::create().
+        $requestedDeptId = isset($body['deptId']) ? (int) $body['deptId'] : 0;
+        if ($requestedDeptId && $ticket->getDeptId() != $requestedDeptId) {
+            $ticket->setDeptId($requestedDeptId);
         }
 
         http_response_code(201);
@@ -238,15 +254,16 @@ class MobileTickets {
 
         http_response_code(200);
         echo json_encode(array(
-            'id'         => (int) $ticket->getId(),
-            'number'     => $ticket->getNumber(),
-            'subject'    => $ticket->getSubject(),
-            'status'     => (string) $ticket->getStatus()->getName(),
-            'department' => $ticket->getDept() ? (string) $ticket->getDept()->getName() : null,
-            'assignee'   => $assignee,
-            'user'       => $owner ? (string) $owner->getName() : null,
-            'overdue'    => (bool) $ticket->isOverdue(),
-            'answered'   => (bool) $ticket->isAnswered(),
+            'id'           => (int) $ticket->getId(),
+            'number'       => $ticket->getNumber(),
+            'subject'      => $ticket->getSubject(),
+            'status'       => (string) $ticket->getStatus()->getName(),
+            'department'   => $ticket->getDept() ? (string) $ticket->getDept()->getName() : null,
+            'assignee'     => $assignee,
+            'user'         => $owner ? (string) $owner->getName() : null,
+            'organization' => ($owner && $owner->getOrg()) ? (string) $owner->getOrg()->getName() : null,
+            'overdue'      => (bool) $ticket->isOverdue(),
+            'answered'     => (bool) $ticket->isAnswered(),
             'created'    => $ticket->getCreateDate(),
             'updated'    => $ticket->getUpdateDate(),
             'due_date'   => $ticket->getDueDate(),
@@ -551,17 +568,18 @@ class MobileTickets {
         $owner = $t->getOwner();
 
         return array(
-            'id'         => (int) $t->getId(),
-            'number'     => $t->getNumber(),
-            'subject'    => $t->getSubject(),
-            'status'     => (string) $t->getStatus()->getName(),
-            'department' => $t->getDept() ? (string) $t->getDept()->getName() : null,
-            'assignee'   => $assignee,
-            'user'       => $owner ? (string) $owner->getName() : null,
-            'overdue'    => (bool) $t->isOverdue(),
-            'answered'   => (bool) $t->isAnswered(),
-            'created'    => $t->getCreateDate(),
-            'updated'    => $t->getUpdateDate(),
+            'id'           => (int) $t->getId(),
+            'number'       => $t->getNumber(),
+            'subject'      => $t->getSubject(),
+            'status'       => (string) $t->getStatus()->getName(),
+            'department'   => $t->getDept() ? (string) $t->getDept()->getName() : null,
+            'assignee'     => $assignee,
+            'user'         => $owner ? (string) $owner->getName() : null,
+            'organization' => ($owner && $owner->getOrg()) ? (string) $owner->getOrg()->getName() : null,
+            'overdue'      => (bool) $t->isOverdue(),
+            'answered'     => (bool) $t->isAnswered(),
+            'created'      => $t->getCreateDate(),
+            'updated'      => $t->getUpdateDate(),
         );
     }
 }
