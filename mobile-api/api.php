@@ -16,6 +16,7 @@ require_once(__DIR__ . '/departments.php');
 require_once(__DIR__ . '/users.php');
 require_once(__DIR__ . '/files.php');
 require_once(__DIR__ . '/staff.php');
+require_once(__DIR__ . '/notifications.php');
 class MobileApiPlugin extends Plugin {
 
     function init() {
@@ -123,6 +124,13 @@ class MobileApiPlugin extends Plugin {
         $dispatcher->append(
             url_get('^/mobile/files/([A-Za-z0-9_-]+)$', function($hash) {
                 MobileFiles::handleDownload($hash);
+            })
+        );
+
+        // Register FCM device token for push notifications
+        $dispatcher->append(
+            url_post('^/mobile/device/token$', function() {
+                MobileNotifications::handleRegisterToken();
             })
         );
 
