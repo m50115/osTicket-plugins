@@ -235,8 +235,13 @@ class MobileTickets {
 
                 $body_obj = $entry->getBody();
                 $entries[] = array(
+                    'entry_id'    => (int) $entry->getId(),
                     'type'        => $type === 'M' ? 'message' : 'response',
                     'author'      => (string) $entry->getName(),
+                    'poster_email' => method_exists($entry, 'getEmail')
+                                       ? (string) $entry->getEmail() : null,
+                    'staff_id'    => (int) ($entry->getStaffId() ?: 0) ?: null,
+                    'user_id'     => (int) ($entry->getUserId() ?: 0) ?: null,
                     'body'        => $body_obj ? (string) $body_obj->convertTo('text') : '',
                     'created'     => $entry->created,
                     'attachments' => $attachments,
@@ -261,6 +266,10 @@ class MobileTickets {
             'department'   => $ticket->getDept() ? (string) $ticket->getDept()->getName() : null,
             'assignee'     => $assignee,
             'user'         => $owner ? (string) $owner->getName() : null,
+            'user_email'   => $owner ? (string) $owner->getEmail() : null,
+            'user_phone'   => ($owner && method_exists($owner, 'getPhoneNumber'))
+                               ? (string) $owner->getPhoneNumber() : null,
+            'user_id'      => $owner ? (int) $owner->getId() : null,
             'organization' => ($owner && $owner->getOrg()) ? (string) $owner->getOrg()->getName() : null,
             'overdue'      => (bool) $ticket->isOverdue(),
             'answered'     => (bool) $ticket->isAnswered(),
@@ -575,6 +584,10 @@ class MobileTickets {
             'department'   => $t->getDept() ? (string) $t->getDept()->getName() : null,
             'assignee'     => $assignee,
             'user'         => $owner ? (string) $owner->getName() : null,
+            'user_email'   => $owner ? (string) $owner->getEmail() : null,
+            'user_phone'   => ($owner && method_exists($owner, 'getPhoneNumber'))
+                               ? (string) $owner->getPhoneNumber() : null,
+            'user_id'      => $owner ? (int) $owner->getId() : null,
             'organization' => ($owner && $owner->getOrg()) ? (string) $owner->getOrg()->getName() : null,
             'overdue'      => (bool) $t->isOverdue(),
             'answered'     => (bool) $t->isAnswered(),
