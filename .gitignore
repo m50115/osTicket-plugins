@@ -15,6 +15,8 @@ stage
 # Ignore hydrated libs & include dir
 **/lib
 **/include
+# ost-workflow keeps its own source under lib/ (PSR-0), not hydrated deps
+!/ost-workflow/lib/
 
 # Ignore installed dependencies and composer if placed here
 lib/*
