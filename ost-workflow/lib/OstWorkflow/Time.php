@@ -79,4 +79,29 @@ final class Time {
         $d->setTimezone(new \DateTimeZone($cfg ? $cfg->getDbTimezone() : 'UTC'));
         return $d->format('Y-m-d H:i:s');
     }
+
+    /**
+     * ISO-8601 => 'Y-m-d H:i:s' in $tzName: the string the core's form layer turns into a DB datetime with
+     * Misc::dbtime (UTC + the offset of the zone the core *guessed* for MySQL). When that guess is wrong (RC-14: MySQL on
+     * a fixed 'CST' guessed as America/Chicago) the stored value drifts one hour in DST months while every read here uses
+     * the measured offset. Pre-compensate so the stored wall clock equals toDb($iso). Identity when the guess is right.
+     */
+    static function forCore($iso, $tzName) {
+        try {
+            $utc = (new \DateTime($iso))->getTimestamp();
+            self::calibrate();
+            if (self::$fixedOffset !== null) {
+                global $cfg;
+                $tz = new \DateTimeZone($cfg->getDbTimezone());
+                $want = $utc + self::$fixedOffset;             // the wall clock MySQL must hold
+                $u = $want;                                     // core stores $u + offset(core zone, $u): solve for $u
+                for ($i = 0; $i < 2; $i++)
+                    $u = $want - $tz->getOffset((new \DateTime())->setTimestamp($u));
+                $utc = $u;
+            }
+            return (new \DateTime())->setTimestamp($utc)->setTimezone(new \DateTimeZone($tzName))->format('Y-m-d H:i:s');
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
 }

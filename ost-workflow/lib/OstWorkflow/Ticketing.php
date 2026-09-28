@@ -396,11 +396,19 @@ final class Ticketing {
         throw ApiError::fromErrors($errors, $fallback);
     }
 
-    /** Collect errors from a osTicket Form object. */
-    static function formErrors(\Form $form) {
+    /**
+     * Collect errors from an osTicket Form or DynamicFormEntry (TaskForm::getInstance() is the latter; a type-hint on
+     * Form turned every invalid task form into a 500). Dynamic entries key their errors by field id: name them.
+     */
+    static function formErrors($form) {
         $out = [];
-        foreach ($form->errors() as $k => $v)
+        foreach ((array) $form->errors() as $k => $v) {
+            if (!is_string($k) && is_int($k) && method_exists($form, 'getFields')) {
+                foreach ($form->getFields() as $f)
+                    if ((int) $f->get('id') === $k && $f->get('name')) { $k = (string) $f->get('name'); break; }
+            }
             $out[is_string($k) ? $k : 'err'] = is_array($v) ? implode('; ', $v) : (string) $v;
+        }
         return $out;
     }
 }

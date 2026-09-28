@@ -20,7 +20,8 @@ Síntomas y su causa. Todos se reprodujeron en el sandbox, salvo el último, que
 | `422 not_editable_type` al editar | la entrada es una respuesta pública o un mensaje del cliente | solo las notas internas se editan; publique una respuesta nueva |
 | `422` "'base' is required" | actualización sin valor base | envíe `base` (o `null` si estaba vacío) |
 | Un ticket aparece dos veces en una lista | (corregido) el filtro de visibilidad duplicaba tickets con referencias | actualice al plugin actual |
-| Horas desfasadas una hora | (corregido) la zona horaria de MySQL era ambigua (p. ej. `CST`) | actualice al plugin actual: comprueba la zona contra el reloj de MySQL |
+| Horas desfasadas una hora | (corregido) la zona horaria de MySQL era ambigua (p. ej. `CST`) | actualice al plugin actual: comprueba la zona contra el reloj de MySQL; desde el 28-sep también compensa la escritura de `due_at` de tareas (alta y `PUT`), donde el núcleo aplicaba su zona supuesta (`America/Chicago`) y desfasaba una hora en meses de horario de verano |
+| Crear una tarea devuelve `500` | (corregido) un formulario de tarea inválido (p. ej. sin `description`) lanzaba `TypeError` en `Ticketing::formErrors` | actualice al plugin actual: responde `422 validation_failed` con `field: description`; la descripción es obligatoria |
 | Error fatal "Cannot declare class" en todo el sitio | dos phars o dos filas con las mismas clases | deje un solo phar `ost-workflow.phar` y una sola fila |
 
 Para un `500`, use el `request_id` de la respuesta para localizar la línea en el registro de errores de PHP (`[ost-workflow] … request_id=…`).

@@ -459,6 +459,24 @@ r = call("POST", "/tasks/%d/status" % KID, {"status": "closed", "base": "open"},
 check("close task", r.status == 200 and r.data["task"]["state"] == "closed")
 check("task thread", len(call("GET", "/tasks/%d/thread" % KID, token=TOK).data) >= 2)
 
+# D-22 regressions VR-18 (invalid TaskForm was a 500: formErrors was typed Form, TaskForm is a DynamicFormEntry) and
+# VR-17 (due_at drifted +1 h in DST months when MySQL runs on a fixed 'CST' that the core guesses as America/Chicago, RC-14).
+for label, extra in (("without description", {}), ("with empty description", {"description": ""})):
+    r = call("POST", "/tickets/%d/tasks" % TID, dict({"title": "E2E nodesc " + U}, **extra), token=TOK)
+    check("create task %s -> 422 on 'description', never 500" % label, r.status == 422 and r.err == "validation_failed" and r.json["error"].get("field") == "description", r.raw[:140])
+yr = time.gmtime().tm_year + 1      # always in the future (the form rejects past dates); winter, DST and shoulder months
+DUES = ["%d-%02d-%02dT18:00:00Z" % (yr, m, d) for m, d in ((1, 15), (3, 20), (7, 15), (10, 15), (12, 15))]
+for iso in DUES:
+    r = call("POST", "/tickets/%d/tasks" % TID, {"title": "E2E due " + U, "description": "x", "due_at": iso}, token=TOK)
+    check("task due_at UTC round trip on create (%s)" % iso[:7], r.status == 201 and r.data["due"] == iso, r.raw[:140])
+r = call("POST", "/tickets/%d/tasks" % TID, {"title": "E2E dueput " + U, "description": "x"}, token=TOK)
+KD, prev = r.data["id"], None
+for iso in DUES:
+    r = call("PUT", "/tasks/%d" % KD, {"due_at": iso, "base": {"due_at": prev}}, token=TOK)
+    check("task due_at UTC round trip on PUT (%s)" % iso[:7], r.status == 200 and r.data["task"]["due"] == iso, r.raw[:140])
+    prev = iso
+check("task due_at cleared with null", call("PUT", "/tasks/%d" % KD, {"due_at": None, "base": {"due_at": prev}}, token=TOK).data["task"]["due"] is None)
+
 # ------------------------------------------------------------------ sync / reports
 print("\n[sync and reports]")
 st, cur, seen = None, None, []

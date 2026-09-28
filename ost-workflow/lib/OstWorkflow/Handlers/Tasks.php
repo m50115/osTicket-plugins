@@ -161,7 +161,7 @@ final class Tasks {
             global $cfg;
             $d = Time::toDb((string) $b['due_at']);
             if (!$d) throw ApiError::validation('Invalid ISO-8601 date', 'due_at');
-            $post['duedate'] = (new \DateTime((string) $b['due_at']))->setTimezone(new \DateTimeZone($cfg->getTimezone($req->staff)))->format('Y-m-d H:i:s');
+            $post['duedate'] = Time::forCore((string) $b['due_at'], $cfg->getTimezone($req->staff));
         }
 
         $result = Contacts::asPost($post, function () use ($post, $ticket, $req) {
@@ -320,7 +320,7 @@ final class Tasks {
                 if (Ticketing::same($cur, $desired)) { $plans[$key] = ['noop' => true]; continue; }
                 if (!Ticketing::same($cur, $bs)) { $conflicts[$key] = $cur; continue; }
                 $field = $t->getField('duedate');
-                $val = $desired ? (new \DateTime($desired))->setTimezone(new \DateTimeZone($cfg->getTimezone($req->staff)))->format('Y-m-d H:i:s') : '';
+                $val = $desired ? Time::forCore($desired, $cfg->getTimezone($req->staff)) : '';
                 $plans[$key] = ['noop' => false, 'field' => $field, 'value' => $val];
                 continue;
             }
