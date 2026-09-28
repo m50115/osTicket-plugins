@@ -9,6 +9,7 @@
 | Aspecto | Estado |
 |---|---|
 | Versión | 0.1 (API `v1`) |
+| Estado | **CLOSED / FROZEN** para la fase de diseño actual: *feature-complete*, línea base de seguridad reforzada, mantenimiento dirigido por consumidores. **No es «production-ready»** (ver [Seguridad](Seguridad.md#estado-y-compuertas-restantes)) |
 | Cobertura | 102 rutas (base congelada, ver [Seguridad](Seguridad.md)): sesión, catálogos, tickets, hilo y archivos, contactos y organizaciones, tareas, reconciliación, sincronización e informes |
 | Probado en | osTicket 1.17.2 con **PHP 8.0.30 + opcache + nginx** (reproduce la configuración de producción —PHP 8.0, opcache, nginx real— salvo las diferencias listadas en [Pruebas-y-Sandbox.md](Pruebas-y-Sandbox.md)) y con PHP 8.2 |
 | No probado todavía | despliegue en contenedores/ECS reales, almacenamiento S3, correo y cron de producción, clientes móviles |
