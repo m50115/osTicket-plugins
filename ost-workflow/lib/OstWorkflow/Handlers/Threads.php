@@ -126,6 +126,7 @@ final class Threads {
         if (!in_array($signature, ['none', 'mine', 'dept'], true))
             throw ApiError::validation("'signature' must be none, mine or dept", 'signature');
         $files = Attachments::resolve($req->input('file_ids'), $staff);
+        Attachments::assertText(Threading::plainBody($req), $files);
         $statusId = $req->input('status_id') !== null
             ? Threading::authorizeStatus($ticket, $staff, $req->input('status_id'), 'status_id') : null;
 
@@ -184,6 +185,7 @@ final class Threads {
         $title = Threading::title($req);
         $alert = Threading::boolInput($req, 'alert', false);
         $files = Attachments::resolve($req->input('file_ids'), $staff);
+        Attachments::assertText(Threading::plainBody($req), $files);
         $statusId = $req->input('note_status_id') !== null
             ? Threading::authorizeStatus($ticket, $staff, $req->input('note_status_id'), 'note_status_id') : null;
 
@@ -246,6 +248,9 @@ final class Threads {
         $files = Attachments::resolve($req->input('file_ids'), $staff);
         if (!$files)
             throw ApiError::validation("'file_ids' must list at least one file", 'file_ids');
+
+        // A PDF needs the explanatory text on the note itself (the entry already has its body).
+        Attachments::assertText(Threading::htmlToText((string) $entry->getBody()->toHtml()), $files, $entry);
 
         $have = Attachments::attachedIds($entry);
         $new = 0;

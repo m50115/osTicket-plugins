@@ -39,6 +39,12 @@ Cursores opacos sobre `(orden, id)`; no hay `offset`. `meta.next_cursor` y `meta
 ## Fechas
 ISO-8601 en **UTC** (`2026-09-27T23:59:57Z`). El plugin normaliza las fechas del núcleo, que se guardan en la zona horaria de la base de datos, y comprueba esa zona contra el reloj de MySQL.
 
+## Un PDF siempre lleva texto
+Una nota o respuesta con un PDF debe explicarlo (qué es el anexo y qué esperar de él): el texto debe tener al menos `min_text_with_pdf` caracteres (opción de la instancia, 15 por defecto; `0` la desactiva; se publica en `GET /config`). Si no, `422` con `details.reason = "attachment_needs_text"`. Vale para notas y respuestas de tickets y tareas, para adjuntar a una nota existente y para editar una nota que ya lleva un PDF.
+
+## SLA, vencimientos y overdue
+Overdue es una **bandera** que activa el cron del núcleo en tickets abiertos vencidos; no es un estado y cambiar el estado no la quita. `GET /tickets/{id}/sla` muestra plan, vencimientos y acciones posibles; `POST /tickets/{id}/sla` permite `restart` (contar desde ahora), `extend`, `disable`, `enable` y `clear_overdue`, con `base` y una nota interna que deja rastro. Un vencimiento manual (`duedate`) prevalece sobre el del SLA.
+
 ## Caché de catálogos
 Las lecturas de catálogos y definiciones de formularios devuelven `ETag` y `Cache-Control: private, max-age=0, must-revalidate`; con `If-None-Match` igual responden `304` sin cuerpo (caché offline barata). El resto de rutas responde `no-store`.
 

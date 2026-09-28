@@ -50,6 +50,8 @@ final class Tickets {
             ['POST',   "$id/referrals",               'refer',    ['policy' => 'ticket.assign']],
             ['PATCH',  "$id/fields/(?P<name>[A-Za-z0-9_]+)", 'editField', ['policy' => 'ticket.edit']],
             ['PUT',    "$id/forms",                   'forms',    ['policy' => 'ticket.edit']],
+            ['GET',    "$id/sla",                     'slaState', ['policy' => 'ticket.view']],
+            ['POST',   "$id/sla",                     'sla',      ['policy' => 'ticket.edit']],
             ['PUT',    "$id/owner",                   'owner',    ['policy' => 'ticket.edit']],
             ['POST',   "$id/answered",                'answered', ['policy' => 'ticket.markanswered']],
         ];
@@ -250,19 +252,47 @@ final class Tickets {
         return Res::ok(['applied' => true, 'user_id' => $req->intParam('uid')]);
     }
 
-    /** GET /tickets/{id}/recipients?reply_to=all|user|collabs — who a reply with that scope reaches. */
+    /**
+     * GET /tickets/{id}/recipients?reply_to=all|user|collabs
+     * `email`: who gets the message by mail with that scope (to/cc). `portal`: who can SEE the ticket (and so the
+     * reply) in the client portal, by the core's own access rule (Ticket::checkUserAccess): the owner, collaborators
+     * and, when the organization shares tickets, its members.
+     */
     static function recipients(Request $req) {
         $t = $req->ctx['ticket'];
         $who = $req->q('reply_to', 'all');
         if (!in_array($who, ['all', 'user', 'collabs'], true))
             throw ApiError::validation("'reply_to' must be all, user or collabs", 'reply_to');
-        $out = [];
+        $email = [];
         if ($who !== 'collabs' && ($o = $t->getOwner()))
-            $out[] = ['role' => 'to', 'user_id' => (int) $o->getId(), 'name' => (string) $o->getName(), 'email' => (string) $o->getEmail()];
+            $email[] = ['role' => 'to', 'user_id' => (int) $o->getId(), 'name' => (string) $o->getName(), 'email' => (string) $o->getEmail()];
         if ($who !== 'user')
             foreach ($t->getActiveCollaborators() as $c)
-                $out[] = ['role' => 'cc', 'user_id' => (int) $c->getUserId(), 'name' => (string) $c->getName(), 'email' => (string) $c->getEmail()];
-        return Res::ok($out, ['reply_to' => $who]);
+                $email[] = ['role' => 'cc', 'user_id' => (int) $c->getUserId(), 'name' => (string) $c->getName(), 'email' => (string) $c->getEmail()];
+
+        $portal = []; $seen = [];
+        $add = function ($u, $reason) use (&$portal, &$seen, $t) {
+            if (!$u || isset($seen[$u->getId()])) return;
+            $seen[$u->getId()] = true;
+            try {
+                if (!$t->checkUserAccess(new \EndUser($u))) return;   // the portal's own rule
+            } catch (\Throwable $e) {
+                // the rule could not be evaluated for this contact: keep the reason-based answer
+            }
+            $portal[] = ['user_id' => (int) $u->getId(), 'name' => (string) $u->getName(), 'email' => (string) $u->getEmail(), 'reason' => $reason];
+        };
+        $owner = $t->getOwner();
+        $add($owner, 'owner');
+        foreach ($t->getCollaborators() as $c) $add(\User::lookup((int) $c->getUserId()), 'collaborator');
+        if ($owner && ($org = $owner->getOrganization()) && ($org->shareWithEverybody() || $org->shareWithPrimaryContacts())) {
+            $n = 0;
+            foreach ($org->allMembers() as $m) {
+                if (++$n > 200) break;
+                $add($m, $m->isPrimaryContact() ? 'organization_primary_contact' : 'organization_member');
+            }
+        }
+        return Res::ok($email, ['reply_to' => $who, 'portal' => $portal,
+                                'note' => '`data` = who receives the e-mail; `meta.portal` = who can see the ticket in the portal']);
     }
 
     /** Dynamic form entries of the ticket (values as osTicket renders them; fields never filled show an empty value). */
@@ -278,6 +308,7 @@ final class Tickets {
                 $fields[] = [
                     'id' => (int) $f->get('id'), 'name' => $f->get('name'), 'label' => (string) $f->getLabel(),
                     'type' => $f->get('type'), 'editable' => (bool) $f->isEditableToStaff(),
+                    'client_visible' => (bool) $f->isVisibleToUsers(), 'client_editable' => (bool) $f->isEditableToUsers(),
                     'value' => $a ? (string) $a->toString() : '',
                     'raw' => (is_object($raw) || $raw instanceof \Traversable || is_array($raw)) ? null : $raw,
                 ];
@@ -756,6 +787,157 @@ final class Tickets {
             }
         }
         throw new ApiError('not_found', "Field '$key' not found on this ticket", null, ['allowed_special' => self::FIELDS]);
+    }
+
+    // ------------------------------------------------------------------
+    // SLA: restart / extend / disable / enable / clear overdue
+    // ------------------------------------------------------------------
+
+    /** GET /tickets/{id}/sla — plan, deadlines and overdue flag, with what can be done. */
+    static function slaState(Request $req) {
+        return Res::ok(self::slaView($req->ctx['ticket']), ['actions' => self::slaActions($req->ctx['ticket'])]);
+    }
+
+    private static function slaView(\Ticket $t) {
+        $row = Ticketing::rows([$t->getId()])[(int) $t->getId()] ?? [];
+        $sla = $t->getSLA();
+        $manual = Time::iso($row['duedate'] ?? null); $slaDue = Time::iso($row['est_duedate'] ?? null);
+        return [
+            'plan' => $sla ? ['id' => (int) $sla->getId(), 'name' => $sla->getName(), 'grace_hours' => (int) $sla->getGracePeriod(),
+                              'active' => (bool) $sla->isActive(), 'transient' => (bool) $sla->isTransient()] : null,
+            'due' => ['manual' => $manual, 'sla' => $slaDue, 'effective' => $manual ?: $slaDue],
+            'is_overdue' => !empty($row['isoverdue']),
+            'counting_from' => Time::iso($row['reopened'] ?? null) ?: Time::iso($row['created'] ?? null),
+            'state' => $t->getState(),
+        ];
+    }
+
+    private static function slaActions(\Ticket $t) {
+        $open = $t->isOpen(); $has = (bool) $t->getSLA();
+        return [
+            'restart'       => $open && $has,
+            'extend'        => $open && ($has || $t->getDueDate()),
+            'disable'       => $has,
+            'enable'        => $open,
+            'clear_overdue' => $open && $t->isOverdue(),
+        ];
+    }
+
+    /** Wall-clock "now" of the database, the clock the core cron compares est_duedate against. */
+    private static function dbNow() {
+        return Store::row('SELECT NOW() AS n')['n'];
+    }
+
+    /** now + the plan's grace period, respecting the department's business hours (the core's own computation). */
+    private static function slaDueFromNow(\Ticket $t, \SLA $sla) {
+        global $cfg;
+        $tz = new \DateTimeZone($cfg->getDbTimezone());
+        $dt = new \DateTime(self::dbNow(), $tz);
+        $schedule = $t->getDept() ? $t->getDept()->getSchedule() : null;
+        $dt = $sla->addGracePeriod($dt, $schedule);
+        $dt->setTimezone($tz);
+        return $dt->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * POST /tickets/{id}/sla {action, base:{sla_id, due}, hours?, sla_id?, clear_manual?, comment?}
+     *   restart        est. due date := now + grace (business hours), overdue cleared
+     *   extend         + `hours` (1-720) on the effective deadline (the manual one when it exists)
+     *   disable        no SLA on this ticket: no deadline, not overdue
+     *   enable         assign `sla_id` and count from now
+     *   clear_overdue  the core's clearOverdue: flag off and past deadlines dropped (so the cron does not flag it again)
+     * `base` = the plan id and the effective due date (ISO or null) the client saw; a mismatch is a 409.
+     */
+    static function sla(Request $req) {
+        $t = $req->ctx['ticket'];
+        $b = $req->json();
+        $action = $b['action'] ?? null;
+        if (!in_array($action, ['restart', 'extend', 'disable', 'enable', 'clear_overdue'], true))
+            throw ApiError::validation("'action' must be restart, extend, disable, enable or clear_overdue", 'action');
+        $base = Ticketing::requireBase($req);
+        if (!is_array($base) || !array_key_exists('sla_id', $base) || !array_key_exists('due', $base))
+            throw ApiError::validation("'base' must be {sla_id, due}: the plan id and the effective due date you saw (null when none)", 'base');
+
+        $cur = self::slaView($t);
+        $curPlan = $cur['plan'] ? $cur['plan']['id'] : null;
+        $baseDue = $base['due'] === null ? null : Time::iso(Time::toDb((string) $base['due']));
+        if ($base['due'] !== null && !$baseDue) throw ApiError::validation('Invalid ISO-8601 date', 'base.due');
+        if (!Ticketing::same($curPlan, $base['sla_id']) || !Ticketing::same($cur['due']['effective'], $baseDue))
+            throw new ApiError('conflict', 'The SLA changed on the server since you read it', null,
+                ['current' => ['sla_id' => $curPlan, 'due' => $cur['due']['effective']], 'base' => $base, 'last_change' => Ticketing::lastChange($t, 'field')]);
+        $note = trim((string) ($b['comment'] ?? ''));
+        if (strlen($note) > 2000) throw ApiError::validation("'comment' is too long", 'comment');
+        $before = Threading::snapshot($t);
+        $when = null;
+
+        if ($action !== 'disable' && $action !== 'enable' && !$t->isOpen() && $action !== 'clear_overdue')
+            throw new ApiError('conflict', 'The ticket is closed; reopen it first (reopening restarts the SLA count)', null, ['reason' => 'ticket_closed']);
+
+        switch ($action) {
+        case 'restart':
+            $sla = $t->getSLA();
+            if (!$sla || !$sla->isActive()) throw new ApiError('conflict', 'The ticket has no active SLA plan; use enable', null, ['reason' => 'no_sla']);
+            if ($cur['due']['manual'] && empty($b['clear_manual']))
+                throw new ApiError('conflict', 'A manual due date overrides the SLA; send clear_manual:true to drop it', 'clear_manual', ['reason' => 'manual_due_date']);
+            $when = self::slaDueFromNow($t, $sla);
+            self::applyDue($t, $when, !empty($b['clear_manual']));
+            $msg = 'SLA restarted';
+            break;
+        case 'enable':
+            $id = $b['sla_id'] ?? null;
+            if (!(is_int($id) || (is_string($id) && ctype_digit($id))) || !($sla = \SLA::lookup((int) $id)) || !$sla->isActive())
+                throw ApiError::validation("'sla_id' must be the id of an active SLA plan", 'sla_id');
+            if (!$t->isOpen()) throw new ApiError('conflict', 'The ticket is closed; reopen it first', null, ['reason' => 'ticket_closed']);
+            $t->setSLAId((int) $id);
+            $when = self::slaDueFromNow($t, $sla);
+            self::applyDue($t, $when, !empty($b['clear_manual']));
+            $msg = 'SLA enabled: ' . $sla->getName();
+            break;
+        case 'extend':
+            $h = $b['hours'] ?? null;
+            if (!is_int($h) || $h < 1 || $h > 720) throw ApiError::validation("'hours' must be an integer between 1 and 720", 'hours');
+            $row = Ticketing::rows([$t->getId()])[(int) $t->getId()] ?? [];
+            $manual = !empty($row['duedate']);
+            $curDue = $manual ? $row['duedate'] : ($row['est_duedate'] ?? null);
+            if (!$curDue) throw new ApiError('conflict', 'The ticket has no deadline to extend; use enable', null, ['reason' => 'no_deadline']);
+            $new = (new \DateTime($curDue))->modify('+' . $h . ' hours')->format('Y-m-d H:i:s');
+            if ($new <= self::dbNow()) $new = (new \DateTime(self::dbNow()))->modify('+' . $h . ' hours')->format('Y-m-d H:i:s');
+            if ($manual) { $t->duedate = $new; $t->isoverdue = 0; $t->save(); }
+            else self::applyDue($t, $new, false);
+            $when = $new;
+            $msg = 'SLA extended by ' . $h . ' hours';
+            break;
+        case 'disable':
+            if (!$t->getSLA() && !$cur['due']['sla'])
+                return Res::ok(['applied' => false, 'sla' => $cur, 'ticket' => Ticketing::summary($t)]);
+            $t->setSLAId(0);
+            $t->est_duedate = null;
+            if (!$cur['due']['manual']) $t->isoverdue = 0;
+            $t->save();
+            $msg = 'SLA disabled';
+            break;
+        case 'clear_overdue':
+            if (!$t->isOverdue())
+                return Res::ok(['applied' => false, 'sla' => $cur, 'ticket' => Ticketing::summary($t)]);
+            $t->clearOverdue();
+            $msg = 'Overdue flag cleared (past deadlines dropped)';
+            break;
+        }
+        // A visible trace in the thread (an internal note), so the change is auditable without guessing.
+        $e = [];
+        $t->postNote(['title' => 'SLA', 'note' => Threading::textToHtml($msg . ($when ? ' — new due: ' . Time::iso($when) : '') . ($note !== '' ? ' — ' . $note : ''))],
+            $e, $req->staff, false);
+        $fresh = \Ticket::lookup((int) $t->getId());
+        return Res::ok(['applied' => true, 'action' => $action, 'sla' => self::slaView($fresh), 'ticket' => Ticketing::summary($fresh),
+                        'effects' => Threading::effects($before, Threading::snapshot($fresh))]);
+    }
+
+    /** Sets the SLA deadline and clears the overdue flag (and the manual deadline when asked). */
+    private static function applyDue(\Ticket $t, $dbDatetime, $clearManual) {
+        $t->est_duedate = $dbDatetime;
+        $t->isoverdue = 0;
+        if ($clearManual) $t->duedate = null;
+        $t->save();
     }
 
     /** PUT /tickets/{id}/owner {user_id, base} */

@@ -2,7 +2,7 @@
 
 Plugin de osTicket 1.17.2 (`ost:workflow`) que expone las capacidades del núcleo como una API JSON tipada y versionada bajo **`/workflow/v1`**: sesión con token revocable, catálogos, tickets, hilo y archivos, contactos y organizaciones, tareas, reconciliación, sincronización por deltas e informes. Es el componente de servidor de BestCare Workflow.
 
-- **Wiki (estable):** [docs/wiki/Home.md](docs/wiki/Home.md) — instalación y actualización validadas en sandbox tipo producción, requisitos de despliegue (nginx), convenciones, referencia de las 99 rutas, guía offline, seguridad y solución de problemas.
+- **Wiki (estable):** [docs/wiki/Home.md](docs/wiki/Home.md) — instalación y actualización validadas en sandbox tipo producción, requisitos de despliegue (nginx), convenciones, referencia de las 101 rutas, guía offline, seguridad y solución de problemas.
 - **OpenAPI:** [docs/openapi.json](docs/openapi.json) (generado de la tabla real de rutas).
 - **Detalle por área** (cuerpos, errores, funciones del núcleo con archivo y línea): [docs/endpoints/](docs/endpoints/).
 - **Sandbox tipo producción:** [`../prod-sandbox/`](../prod-sandbox/) (PHP 8.0.30 + opcache + nginx real + proxy tipo balanceador, sin root).

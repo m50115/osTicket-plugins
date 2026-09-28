@@ -40,6 +40,12 @@ final class Threading {
         return new \HtmlThreadEntryBody($raw);
     }
 
+    /** The text the request will publish, as a reader sees it (plain). */
+    static function plainBody(Request $req, $field = 'body') {
+        $raw = (string) $req->input($field, '');
+        return $req->input('body_format', 'text') === 'html' ? self::htmlToText($raw) : $raw;
+    }
+
     /**
      * Plain text -> HTML that survives Format::safe_html() unchanged in meaning.
      * safe_html reduces one level of entity escaping for entity-like sequences
@@ -209,6 +215,7 @@ final class Threading {
 
         $new = self::bodyFromRequest($req);
         $files = Attachments::resolve($req->input('file_ids'), $staff);
+        Attachments::assertText(self::plainBody($req), $files, $old);
         $title = $req->input('title');
         if ($title !== null && !is_string($title)) throw ApiError::validation("'title' must be text", 'title');
         $title = $title === null ? (string) $old->title : self::title($req);

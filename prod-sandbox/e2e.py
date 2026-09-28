@@ -326,6 +326,65 @@ big, ct = multipart("file", "big.txt", b"x" * (cfg.data["attachments"]["max_file
 rb = call("POST", "/files", token=TOK, raw=big, ctype=ct)
 check("oversize file -> typed too_large (or nginx 413)", rb.status == 413)
 
+# ------------------------------------------------------------------ PDF rule, recipients, SLA
+print("\n[PDF needs text, recipients, SLA]")
+check("/config publishes the PDF text rule and search limits", cfg.data["limits"]["min_text_with_pdf"] >= 0 and cfg.data["search"]["min_length"] == 2)
+pdf = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Count 0/Kids[]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+def upload_pdf():
+    b_, c_ = multipart("file", "report-%s.pdf" % uuid.uuid4().hex[:6], pdf, "application/pdf")
+    return call("POST", "/files", token=TOK, raw=b_, ctype=c_)
+up = upload_pdf()
+check("upload a PDF", up.status == 201 and up.data["type"] == "application/pdf", up.raw[:100])
+PF = up.data["file_id"]
+minc = cfg.data["limits"]["min_text_with_pdf"]
+if minc:
+    r = call("POST", "/tickets/%d/notes" % TID, {"body": "ver", "file_ids": [PF]}, token=TOK)
+    check("note: a PDF with too little text is refused", r.status == 422 and r.details.get("reason") == "attachment_needs_text")
+    r = call("POST", "/tickets/%d/replies" % TID, {"body": "adjunto", "notify": "none", "file_ids": [PF]}, token=TOK)
+    check("public reply: a PDF with too little text is refused", r.status == 422 and r.details.get("reason") == "attachment_needs_text")
+    short_note = call("POST", "/tickets/%d/notes" % TID, {"body": "corto"}, token=TOK).data["entry"]["id"]
+    r = call("POST", "/tickets/%d/notes/%d/files" % (TID, short_note), {"file_ids": [upload_pdf().data["file_id"]]}, token=TOK)
+    check("late attachment of a PDF onto a short note is refused", r.status == 422 and r.details.get("reason") == "attachment_needs_text")
+r = call("POST", "/tickets/%d/notes" % TID, {"body": "Attached: signed service report. The customer should review it and confirm.", "file_ids": [PF]}, token=TOK)
+check("note: a PDF with explanatory text is accepted", r.status == 201 and r.data["entry"]["attachments"][0]["type"] == "application/pdf")
+PN = r.data["entry"]["id"]
+if minc:
+    r = call("PATCH", "/tickets/%d/notes/%d" % (TID, PN), {"body": "ok"}, token=TOK)
+    check("editing the note down to almost no text is refused while the PDF is attached", r.status == 422)
+rc = call("GET", "/tickets/%d/recipients?reply_to=all" % TID, token=TOK)
+check("recipients: who gets mail (data) vs who sees it in the portal (meta.portal)", rc.status == 200 and isinstance(rc.meta.get("portal"), list) and any(x["reason"] == "owner" for x in rc.meta["portal"]))
+
+# SLA
+sl = call("GET", "/tickets/%d/sla" % TID, token=TOK)
+check("GET /sla: plan, due dates, overdue flag, available actions", sl.status == 200 and "plan" in sl.data and "effective" in sl.data["due"] and "restart" in sl.meta["actions"])
+def sla_base():
+    x = call("GET", "/tickets/%d/sla" % TID, token=TOK).data
+    return {"sla_id": (x["plan"] or {}).get("id"), "due": x["due"]["effective"]}
+r = call("POST", "/tickets/%d/sla" % TID, {"action": "extend", "hours": 0, "base": sla_base()}, token=TOK)
+check("SLA extend validates hours", r.status == 422)
+r = call("POST", "/tickets/%d/sla" % TID, {"action": "restart", "base": {"sla_id": 999, "due": None}}, token=TOK)
+check("SLA op with a stale base -> 409", r.status == 409)
+r = call("POST", "/tickets/%d/sla" % TID, {"action": "disable", "base": sla_base()}, token=TOK)
+check("SLA disable", r.status == 200 and r.data["sla"]["plan"] is None and not r.data["sla"]["is_overdue"])
+r = call("POST", "/tickets/%d/sla" % TID, {"action": "restart", "base": sla_base()}, token=TOK)
+check("SLA restart without a plan -> 409 no_sla", r.status == 409 and r.details.get("reason") == "no_sla")
+r = call("POST", "/tickets/%d/sla" % TID, {"action": "enable", "sla_id": 1, "base": sla_base()}, token=TOK)
+check("SLA enable a plan (counts from now)", r.status == 200 and r.data["sla"]["plan"]["id"] == 1 and r.data["sla"]["due"]["sla"])
+r = call("POST", "/tickets/%d/sla" % TID, {"action": "extend", "hours": 24, "base": sla_base()}, token=TOK)
+check("SLA extend +24h", r.status == 200 and r.data["applied"])
+if sql("select 1") is not None:
+    sql("update ost_ticket set est_duedate=DATE_SUB(NOW(), INTERVAL 3 HOUR), duedate=NULL, isoverdue=1 where ticket_id=%d" % TID)
+    check("forced overdue is reported", call("GET", "/tickets/%d" % TID, token=TOK).data["is_overdue"] is True)
+    r = call("POST", "/tickets/%d/sla" % TID, {"action": "restart", "base": sla_base(), "comment": "e2e"}, token=TOK)
+    check("SLA restart clears overdue and sets a new deadline", r.status == 200 and r.data["sla"]["is_overdue"] is False and r.data["sla"]["due"]["sla"])
+    sql("update ost_ticket set est_duedate=DATE_SUB(NOW(), INTERVAL 3 HOUR), duedate=NULL, isoverdue=1 where ticket_id=%d" % TID)
+    r = call("POST", "/tickets/%d/sla" % TID, {"action": "clear_overdue", "base": sla_base()}, token=TOK)
+    check("clear_overdue drops the flag (and the past deadline)", r.status == 200 and r.data["sla"]["is_overdue"] is False)
+else:
+    skip("SLA overdue restart / clear_overdue", "no DB access")
+if TOK2:
+    check("agent2: SLA operations need ticket.edit", call("POST", "/tickets/%d/sla" % TID, {"action": "restart", "base": sla_base()}, token=TOK2).status in (403, 404))
+
 # ------------------------------------------------------------------ tasks
 print("\n[tasks]")
 r = call("POST", "/tickets/%d/tasks" % TID, {"title": "E2E task " + U, "description": "do it"}, token=TOK)

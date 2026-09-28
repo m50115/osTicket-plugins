@@ -42,6 +42,14 @@ final class Meta {
                 'dept_id'  => ($v = Runtime::setting('default_dept_id')) ? (int) $v : null,
                 'topic_id' => ($v = Runtime::setting('default_topic_id')) ? (int) $v : null,
             ],
+            'search' => ['min_length' => 2, 'max_length' => 100],
+            'limits' => [
+                'json_body_bytes'     => \OstWorkflow\Request::MAX_JSON_BYTES,
+                'post_max_size'       => self::iniBytes('post_max_size'),
+                'upload_max_filesize' => self::iniBytes('upload_max_filesize'),
+                'max_files_per_entry' => Runtime::intSetting('max_files_per_note', 5),
+                'min_text_with_pdf'   => Runtime::intSetting('min_text_with_pdf', 15),
+            ],
             'text' => [
                 // false when the database is utf8mb3: emoji / characters above U+FFFF are dropped (writes report `sanitized`)
                 'supplementary_characters_supported' => !Threading::dbDropsSupplementary(),
@@ -54,5 +62,17 @@ final class Meta {
                 'allowed_types'  => $cfg->getAllowedFileTypes(),
             ],
         ]);
+    }
+
+    private static function iniBytes($key) {
+        $v = trim((string) ini_get($key));
+        if ($v === '') return null;
+        $n = (int) $v;
+        switch (strtolower(substr($v, -1))) {
+            case 'g': $n *= 1024;
+            case 'm': $n *= 1024;
+            case 'k': $n *= 1024;
+        }
+        return $n;
     }
 }

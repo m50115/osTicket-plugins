@@ -98,3 +98,6 @@ Thumbnails: `?s=<16..2048>` for images (GD): PNG, longest side = `s` (never upsc
 * **`file_expired` (410)**: the agent uploaded the file but the core's orphan cleanup (about a day) already removed it — upload again. A `file_id` never uploaded by this agent stays `422 validation_failed`.
 * **`attachment_missing` (409)**: the entry was created but some files did not attach; `details{entry_id, entry_created:true, missing_file_ids, retry_with}`. Never a success with fewer attachments; finish with `POST …/notes/{entry}/files`.
 * **Notes do not alert by default** (`alert:false`): a field document does not email anyone unless the app asks.
+
+## A PDF always comes with text
+A note or reply that carries a PDF must explain it to the reader (what the attachment is and what to expect from it): the plain text must reach **`min_text_with_pdf`** characters (instance option, default 15, `0` disables; published in `GET /config` → `limits.min_text_with_pdf`). Applies to notes and replies of tickets and tasks, to `POST …/notes/{entry}/files` (the note's existing text counts) and to edits of a note that already carries a PDF. Otherwise `422 validation_failed` with `details{reason:"attachment_needs_text", min_chars, chars}`. Other file types are not affected. (msolis, 2026-09-28)

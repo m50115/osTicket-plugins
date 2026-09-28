@@ -44,6 +44,13 @@ class OstWorkflowConfig extends PluginConfig {
                 'required' => true,
                 'configuration' => array('size' => 10, 'length' => 10),
             )),
+            'min_text_with_pdf' => new TextboxField(array(
+                'label'    => __('Minimum text characters when a PDF is attached'),
+                'hint'     => __('A note or reply that carries a PDF must explain it to the reader (what it is, what to expect). 0 disables the rule.'),
+                'default'  => '15',
+                'required' => true,
+                'configuration' => array('size' => 4, 'length' => 3),
+            )),
             'trusted_proxies' => new TextboxField(array(
                 'label'    => __('Trusted proxy IPs / CIDRs (comma separated)'),
                 'hint'     => __('X-Forwarded-For is honoured only from these addresses (used for login rate limiting).'),
@@ -77,6 +84,8 @@ class OstWorkflowConfig extends PluginConfig {
         foreach (array('token_ttl_days','max_files_per_note','max_file_bytes') as $k)
             if (isset($config[$k]) && (!ctype_digit((string) $config[$k]) || (int) $config[$k] < 1))
                 $errors[$k] = __('Must be a positive integer');
+        if (isset($config['min_text_with_pdf']) && !ctype_digit((string) $config['min_text_with_pdf']))
+            $errors['min_text_with_pdf'] = __('Must be 0 or a positive integer');
         foreach (array('default_dept_id','default_topic_id') as $k)
             if (!empty($config[$k]) && !ctype_digit((string) $config[$k]))
                 $errors[$k] = __('Must be a numeric id');

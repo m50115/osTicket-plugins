@@ -194,6 +194,7 @@ final class Tasks {
         $chars = Threading::charsIn($req);
         $body = Threading::bodyFromRequest($req);
         $files = Attachments::resolve($req->input('file_ids'), $req->staff);
+        Attachments::assertText(Threading::plainBody($req), $files);
         $vars = ['note' => $body, 'title' => Threading::title($req), 'staffId' => $req->staff->getId(),
                  'files' => Attachments::forCreate($files, $req->staff), 'ip_address' => RateLimit::ip($req)];
         $errors = [];
@@ -218,6 +219,7 @@ final class Tasks {
         $chars = Threading::charsIn($req);
         $body = Threading::bodyFromRequest($req);
         $files = Attachments::resolve($req->input('file_ids'), $req->staff);
+        Attachments::assertText(Threading::plainBody($req), $files);
         $vars = ['response' => $body, 'staffId' => $req->staff->getId(), 'poster' => $req->staff,
                  'files' => Attachments::forCreate($files, $req->staff), 'ip_address' => RateLimit::ip($req)];
         $errors = [];

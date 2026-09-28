@@ -206,6 +206,35 @@ final class Attachments {
         return $files;
     }
 
+    /** True when a file is a PDF (by detected type or extension). */
+    static function isPdf(\AttachmentFile $f, $name = null) {
+        return strcasecmp((string) $f->getType(), 'application/pdf') === 0
+            || strtolower(pathinfo((string) ($name ?: $f->getName()), PATHINFO_EXTENSION)) === 'pdf';
+    }
+
+    /**
+     * A PDF never travels alone: the text of the note or reply tells the reader what the attachment is and what to
+     * expect from it (msolis, 2026-09-28). Applies to every entry that carries a PDF, new or already attached.
+     * @param string $plainText the text that will be published (plain, tags stripped)
+     * @param \AttachmentFile[] $files newly attached files
+     * @param \ThreadEntry|null $entry an existing entry whose current attachments also count (edits, late attachments)
+     */
+    static function assertText($plainText, array $files, \ThreadEntry $entry = null, $field = 'body') {
+        $min = Runtime::intSetting('min_text_with_pdf', 15);
+        if ($min < 1) return;
+        $pdf = false;
+        foreach ($files as $f) if (self::isPdf($f)) { $pdf = true; break; }
+        if (!$pdf && $entry) {
+            foreach ($entry->attachments as $att)
+                if (!$att->inline && ($f = $att->getFile()) && self::isPdf($f, $att->getFilename())) { $pdf = true; break; }
+        }
+        if (!$pdf) return;
+        $len = mb_strlen(trim(preg_replace('/\s+/u', ' ', (string) $plainText)));
+        if ($len < $min)
+            throw new ApiError('validation_failed', "A PDF must come with text that explains it to the reader (at least $min characters: what the attachment is and what to expect from it)",
+                $field, ['reason' => 'attachment_needs_text', 'min_chars' => $min, 'chars' => $len]);
+    }
+
     /** Shape accepted by ThreadEntry::create()'s `files` var (existing files by id). */
     static function forCreate(array $files, \Staff $staff = null) {
         $out = [];

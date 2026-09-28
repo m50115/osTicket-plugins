@@ -3394,6 +3394,95 @@
                 }
             }
         },
+        "/tickets/{id}/sla": {
+            "get": {
+                "operationId": "ticketsSlaState_get_tickets_id_sla",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "ticketsSla_post_tickets_id_sla",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/tickets/{id}/status": {
             "post": {
                 "operationId": "ticketsStatus_post_tickets_id_status",

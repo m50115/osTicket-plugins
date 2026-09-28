@@ -8,7 +8,7 @@ Entorno tipo producción para probar `ost-workflow` sin root ni Docker: PHP 8.0.
 | `prod-sandbox.sh start [current\|proposed]` | `current` = nginx exactamente como en producción hoy; `proposed` = + ruta `/api/workflow` y `client_max_body_size`. También `stop`, `status`, `restart-ecs` (procesos nuevos, opcache frío), `logs`. Arranca Mailpit si existe. |
 | `plugin-admin.php <app> install\|uninstall [ruta]` | Instala/desinstala el plugin con el `PluginManager` de osTicket. |
 | `smoke.sh [BASE]` | 16 comprobaciones de humo (rutas, autenticación, idempotencia, conflicto, revocación). |
-| `e2e.py [BASE]` | Suite de regresión (~115 comprobaciones) por HTTP; crea sus propios datos. Con `SCR` apuntando a un directorio con `sql.sh` también prueba la recuperación tras un corte de idempotencia. |
+| `e2e.py [BASE]` | Suite de regresión (~135 comprobaciones) por HTTP; crea sus propios datos. Con `SCR` apuntando a un directorio con `sql.sh` también prueba la recuperación tras un corte de idempotencia. |
 | `ci-check.sh [phar]` | Guardias estáticas (PHP 8.0, sin globales, sin exit, sin estado en archivos, un solo manifiesto). |
 | `build-artifact.sh` | Artefacto con `build_sha` estampado en `dist/` (+ sha256 y build.json). |
 | `gen-openapi.php` | Genera `ost-workflow/docs/openapi.json` desde la tabla real de rutas. |
