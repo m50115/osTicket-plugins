@@ -665,8 +665,8 @@ final class Tickets {
     private static function planField(Request $req, \Ticket $t, $name, $value, $base) {
         global $cfg;
         if (in_array($name, self::FIELDS, true)) {
-            if ($value === null && in_array($name, ['priority', 'topic', 'sla'], true))
-                throw ApiError::validation("'$name' cannot be cleared: send an id", 'value');
+            if (($value === null || (string) $value === '0') && in_array($name, ['priority', 'topic', 'sla'], true))
+                throw ApiError::validation("'$name' cannot be cleared here: send an id" . ($name === 'sla' ? ' (removing or restarting the SLA needs its own operation)' : ''), 'value');
             switch ($name) {
             case 'priority': $current = (int) $t->getPriorityId(); break;
             case 'topic':    $current = (int) $t->getTopicId(); break;
