@@ -88,7 +88,7 @@ final class Users {
     static function tickets(Request $req) {
         require_once(INCLUDE_DIR . 'class.ticket.php');
         $u = $req->ctx['user'];
-        return Ticketing::pageById(\Ticket::objects()->filter($req->staff->getTicketsVisibility())->filter(['user_id' => $u->getId()]), $req);
+        return Ticketing::pageById(Ticketing::visible($req->staff)->filter(['user_id' => $u->getId()]), $req);
     }
 
     static function fields(Request $req) {

@@ -605,7 +605,7 @@ final class Tickets {
 
     private static function visible(Request $req) {
         require_once(INCLUDE_DIR . 'class.ticket.php');
-        return \Ticket::objects()->filter($req->staff->getTicketsVisibility());
+        return Ticketing::visible($req->staff);
     }
 
     private static function textFilter($qs, $q) {

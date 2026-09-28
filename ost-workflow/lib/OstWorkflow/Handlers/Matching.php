@@ -129,7 +129,7 @@ final class Matching {
      */
     static function ticket(Request $req) {
         require_once(INCLUDE_DIR . 'class.ticket.php');
-        $vis = \Ticket::objects()->filter($req->staff->getTicketsVisibility());
+        $vis = Ticketing::visible($req->staff);
         if (($marker = $req->q('marker')) !== null) {
             if (!preg_match('/^wf:[A-Za-z0-9-]{8,37}$/', (string) $marker))
                 throw ApiError::validation("'marker' must look like wf:<uuid>", 'marker');

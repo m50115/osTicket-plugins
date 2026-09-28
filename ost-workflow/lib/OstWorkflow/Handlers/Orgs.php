@@ -87,7 +87,7 @@ final class Orgs {
 
     static function tickets(Request $req) {
         require_once(INCLUDE_DIR . 'class.ticket.php');
-        return Ticketing::pageById(\Ticket::objects()->filter($req->staff->getTicketsVisibility())
+        return Ticketing::pageById(Ticketing::visible($req->staff)
             ->filter(['user__org_id' => $req->ctx['org']->getId()]), $req);
     }
 

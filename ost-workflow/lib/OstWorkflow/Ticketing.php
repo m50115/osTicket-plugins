@@ -13,6 +13,7 @@ final class Ticketing {
         'field'    => ['edited'],
         'owner'    => ['edited'],
         'answered' => ['edited'],
+        'task_state' => ['closed', 'reopened', 'created'],
     ];
 
     // ------------------------------------------------------------------
@@ -133,6 +134,15 @@ final class Ticketing {
         return ['v' => $c['v'], 'i' => (int) $c['i']];
     }
 
+    /**
+     * Tickets the agent may see. The visibility filter joins referral/assignment tables, so a ticket can match
+     * through several rows: DISTINCT keeps each ticket once (osTicket's own queues do the same).
+     */
+    static function visible(\Staff $staff) {
+        require_once(INCLUDE_DIR . 'class.ticket.php');
+        return \Ticket::objects()->filter($staff->getTicketsVisibility())->distinct('ticket_id');
+    }
+
     /** Newest-first page of an already visibility-filtered query, cursor on ticket_id. */
     static function pageById($qs, Request $req) {
         $limit = $req->intQuery('limit', 25, 1, 100);
@@ -170,7 +180,7 @@ final class Ticketing {
      * @param mixed $desired  value requested
      * @return string 'apply' | 'noop'; throws 409 conflict otherwise
      */
-    static function precondition(\Ticket $t, $current, $base, $desired, $eventGroup) {
+    static function precondition($t, $current, $base, $desired, $eventGroup) {
         if (self::same($current, $desired))
             return 'noop';
         if (!self::same($current, $base)) {
@@ -187,7 +197,7 @@ final class Ticketing {
     }
 
     /** Author and time of the latest relevant thread event. */
-    static function lastChange(\Ticket $t, $group) {
+    static function lastChange($t, $group) {
         $names = self::EVENT_NAMES[$group] ?? ['edited'];
         $in = implode(',', array_map(function ($n) { return Store::esc($n); }, $names));
         $r = Store::row('SELECT e.timestamp, e.username, e.staff_id, ev.name FROM ' . THREAD_EVENT_TABLE . ' e JOIN '
