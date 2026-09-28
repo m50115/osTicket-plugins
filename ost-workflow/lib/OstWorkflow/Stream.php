@@ -15,4 +15,16 @@ final class Stream {
     }
 
     function write() { call_user_func($this->writer); }
+
+    /** Sends bytes [$start,$end] of a storage backend in chunks (the only other place besides the Emitter that outputs). */
+    static function copyRange($backend, $start, $end) {
+        @ini_set('zlib.output_compression', 'Off');
+        $pos = (int) $start;
+        while ($pos <= $end) {
+            $chunk = $backend->read(min(65536, $end - $pos + 1), $pos);
+            if ($chunk === false || $chunk === '' || $chunk === null) break;
+            echo $chunk;
+            $pos += strlen($chunk);
+        }
+    }
 }

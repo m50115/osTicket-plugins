@@ -82,7 +82,7 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 
 ## Hilo, archivos y documentos
 
-Detalle: [threads-files.md](../endpoints/threads-files.md)
+Detalle: [threads-files.md](../endpoints/threads-files.md). Respuestas frente a notas y edición de notas internas (`PATCH …/notes/{entry}`, con la regla adicional autor, gerente del departamento o `thread.edit`): [Respuestas-y-Notas.md](Respuestas-y-Notas.md). Documentos con versiones y descargas con rangos: [threads-files.md](../endpoints/threads-files.md) y [me-queues-documents.md](../endpoints/me-queues-documents.md)
 
 | Método | Ruta | Permiso |
 |---|---|---|

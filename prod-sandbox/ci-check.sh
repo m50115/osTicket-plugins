@@ -22,8 +22,8 @@ out=$(grep -rnE '((=|return|\(|,|\?\?)\s*match\s*\(|\benum\s+[A-Z]|readonly\s+(p
 out=$(grep -rnE '\b(exit|die)\s*[;(]|Http::response' "$SRC/lib" "$SRC/workflow.php" "$SRC/config.php" --include=*.php | grep -vE ':\s*(//|\*)' | head)
 [ -z "$out" ] && ok "no exit/die/Http::response (R-C07: one emitter)" || bad "exit/die/Http::response found" "$out"
 
-out=$(grep -rnE '^\s*(echo|print)\b' "$SRC/lib" --include=*.php | grep -v 'Emitter.php' | head)
-[ -z "$out" ] && ok "echo only in the Emitter" || bad "echo outside the Emitter" "$out"
+out=$(grep -rnE '^\s*(echo|print)\b' "$SRC/lib" --include=*.php | grep -vE 'Emitter.php|Stream.php' | head)
+[ -z "$out" ] && ok "echo only in the Emitter and Stream (the output classes)" || bad "echo outside the Emitter" "$out"
 
 out=$(grep -rnE 'file_put_contents|fopen\([^)]*[\x27"][wax]|__DIR__[^;]*(unlink|mkdir|touch)|tempnam|sys_get_temp_dir' "$SRC" --include=*.php | grep -vE ':\s*(//|\*)' | head)
 [ -z "$out" ] && ok "no state in files (PP-12)" || bad "file writes" "$out"

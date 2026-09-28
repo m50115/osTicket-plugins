@@ -156,14 +156,7 @@ final class Files {
                 return new Stream(function () {}, $head + ['Content-Range' => 'bytes */' . $size, 'Content-Length' => '0'], 416);
             $bk = $file->open();
             return new Stream(function () use ($bk, $start, $end) {
-                @ini_set('zlib.output_compression', 'Off');
-                $pos = $start;
-                while ($pos <= $end) {
-                    $chunk = $bk->read(min(65536, $end - $pos + 1), $pos);
-                    if ($chunk === false || $chunk === '' || $chunk === null) break;
-                    echo $chunk;
-                    $pos += strlen($chunk);
-                }
+                Stream::copyRange($bk, $start, $end);
             }, $head + ['Content-Range' => sprintf('bytes %d-%d/%d', $start, $end, $size), 'Content-Length' => (string) ($end - $start + 1)], 206);
         }
 

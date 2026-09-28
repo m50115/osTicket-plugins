@@ -12,7 +12,7 @@ Una **capa controlada** entre un cliente y osTicket. No es una colección de rut
 6. **JSON siempre**, con un catálogo cerrado de errores. Fechas en UTC ISO-8601.
 
 ## Qué hace
-Sesión con token revocable; perfil y permisos del agente (y edición del propio perfil, con disponibilidad «de vacaciones»); colas guardadas de osTicket; catálogos y formularios; tickets (listas con cursor, detalle, búsqueda, alta, estado, asignación, reclamo, transferencia, referencias, campos, dueño, colaboradores); hilo (actividad unificada, respuestas, notas y edición de notas internas con versiones, ver [Respuestas-y-Notas.md](Respuestas-y-Notas.md)) y archivos (subida, descarga con control de acceso, miniaturas); contactos y organizaciones con reconciliación; tareas; sincronización por deltas; informe de soporte.
+Sesión con token revocable; perfil y permisos del agente (y edición del propio perfil, con disponibilidad «de vacaciones»); colas guardadas de osTicket; catálogos y formularios; tickets (listas con cursor, detalle, búsqueda, alta, estado, asignación, reclamo, transferencia, referencias, campos, dueño, colaboradores); hilo (actividad unificada, respuestas, notas y edición de notas internas con versiones, ver [Respuestas-y-Notas.md](Respuestas-y-Notas.md)) y archivos (subida, descarga con control de acceso y con rangos, miniaturas), documentos con identidad y versiones, y exportación del ticket a PDF; contactos y organizaciones con reconciliación; tareas; sincronización por deltas; informe de soporte.
 
 ## Qué no hace
 Ver la lista en [API-Reference.md](API-Reference.md#lo-que-la-api-no-expone) y el motivo en [Seguridad.md](Seguridad.md).
