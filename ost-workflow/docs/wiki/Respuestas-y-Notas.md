@@ -31,7 +31,7 @@ Los mensajes que escribe el cliente tampoco se pueden editar por la API.
 ```json
 { "body": "texto corregido", "title": "opcional", "file_ids": [123] }
 ```
-`body` es obligatorio; `body_format` (`text` por defecto o `html`), `title` y `file_ids` son opcionales. Si se omite `title`, se conserva. `{entry}` de la URL es la **versión que el cliente vio**.
+`body` es obligatorio; `body_format` (`text` por defecto o `html`), `title` y `file_ids` son opcionales. Ni `text` ni `html` admiten contenido inline en V1 (referencias `cid:`, URI `data:` o URL `file.php?key=`): `422 validation_failed` con `details.reason` = `inline_cid_not_supported` o `inline_data_not_supported`. Si se omite `title`, se conserva. `{entry}` de la URL es la **versión que el cliente vio**.
 
 ### Versiones: la edición no muta, crea
 Editar crea una **entrada nueva** enlazada a la anterior (`supersedes`), marcada `edited`, con el editor registrado y **la misma fecha de creación** (conserva su lugar en el hilo). El autor original no cambia. La versión anterior queda **oculta, nunca se borra**.

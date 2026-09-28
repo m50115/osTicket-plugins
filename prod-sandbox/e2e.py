@@ -16,7 +16,7 @@ Covers the regression chains RC-* of the Technical Notes: routing, auth/tokens, 
 base values, candidates, threads/files, sync, tasks, sandbox-only checks skipped when the DB is not reachable.
 Exit code 0 = all checks passed.
 """
-import json, os, sys, time, uuid, urllib.request, urllib.error, re, subprocess
+import base64, json, os, sys, time, uuid, urllib.request, urllib.error, urllib.parse, re, subprocess
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8090/api/workflow/v1").rstrip("/")
 ROOT = BASE.split("/api/")[0]
@@ -831,6 +831,185 @@ if sql("select 1") is not None:
     check("live lease -> 409 in_progress + Retry-After", r.status == 409 and r.err == "in_progress" and "Retry-After" in r.headers)
 else:
     skip("crash recovery", "no DB access (prod-sandbox/sql.sh needs ~/development/ost-sandbox/credentials.env)")
+
+# ------------------------------------------------------------------ MSOLIS final security decisions (2026-09-28)
+print("\n[final security decisions: 2FA A1, dept_id, actor, cid:/data:]")
+
+
+def mp_total(query=None):
+    """Messages in the Mailpit sandbox sink (all, or those matching a search); None when Mailpit is not reachable."""
+    try:
+        url = "http://127.0.0.1:8025/api/v1/" + ("search?query=" + urllib.parse.quote(query) if query else "messages?limit=1")
+        with urllib.request.urlopen(url, timeout=5) as x:
+            d = json.loads(x.read())
+        return d.get("messages_count", d.get("total"))
+    except Exception:
+        return None
+
+
+def n_rows(table):
+    r = sql("select count(*) from " + table)
+    return int(r[0]) if r else None
+
+
+def file_status(hash_, tk):
+    try:
+        with urllib.request.urlopen(urllib.request.Request(BASE + "/files/" + hash_, headers={"Authorization": "Bearer " + tk})) as x:
+            return x.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+# --- 2FA A1: an agent with a second factor cannot sign in through the API (fail closed, before process()) ---
+A2F = (os.environ.get("AGENT2FA_USER"), os.environ.get("AGENT2FA_PASS"))
+if not A2F[0]:
+    e2f = load_env(os.path.join(SCR_DIR, "agent2fa.env"))
+    A2F = (e2f.get("AGENT2FA_USER"), e2f.get("AGENT2FA_PASS"))
+if A2F[0]:
+    otp_before = mp_total("to:%s@example.com" % A2F[0])
+    r = call("POST", "/auth/login", {"username": A2F[0], "password": A2F[1]}, key=None)
+    check("2FA A1: correct credentials of an agent with a second factor -> 403 two_factor_required", r.status == 403 and r.err == "two_factor_required", r.raw[:120])
+    check("2FA A1: ... no token and no session data in the answer", '"token"' not in r.raw and r.data is None, r.raw[:120])
+    r = call("POST", "/auth/login", {"username": A2F[0] + "@example.com", "password": A2F[1]}, key=None)
+    check("2FA A1: ... signing in by e-mail address is refused the same way", r.status == 403 and r.err == "two_factor_required", r.raw[:120])
+    check("2FA A1: ... an unauthenticated call is still 401 (nothing was granted)", call("GET", "/me", key=None).status == 401)
+    if otp_before is not None:
+        check("2FA A1: ... refused BEFORE process(): no OTP e-mail was sent", mp_total("to:%s@example.com" % A2F[0]) == otp_before)
+    else:
+        skip("2FA A1 no-OTP check", "Mailpit is not reachable on 127.0.0.1:8025")
+    if TOK2:
+        check("2FA A1 control: an agent WITHOUT a second factor still gets a token and reads /me", call("GET", "/me", token=TOK2).status == 200)
+        r = call("POST", "/auth/login", {"username": A2[0], "password": A2[1] + "x"}, key=None)
+        check("2FA A1 control: a wrong password of a normal agent is still 401", r.status == 401)
+else:
+    skip("2FA A1", "needs the 2FA fixture agent (agent2fa.env; see E2E-Fixtures.md)")
+
+# --- D1: POST /tickets only in a department the agent really has access to (the set GET /departments lists) ---
+if TOK2:
+    subj = "dept-restrict %s" % U
+    body = {"message": "m", "topic_id": 1, "user_id": UID}
+    r = call("POST", "/tickets", dict(body, subject=subj + " own", dept_id=1), token=TOK2)
+    check("D1: agent2 creates a ticket in its own department (Support) -> 201", r.status == 201, r.raw[:120])
+    r = call("POST", "/tickets", dict(body, subject=subj + " sales", dept_id=2), token=TOK2)
+    check("D1: ... in a department it cannot access (Sales) -> 403 forbidden, reason department_not_accessible",
+          r.status == 403 and r.err == "forbidden" and r.details.get("reason") == "department_not_accessible" and r.details.get("dept_id") == 2, r.raw[:160])
+    check("D1: ... and the rejected ticket was NOT created", (sql("select count(*) from ost_ticket__cdata where subject = '%s sales'" % subj) or ["?"])[0] == "0")
+    mine = {d["id"] for d in call("GET", "/departments", token=TOK2).data}
+    check("D1: the accessible set is what GET /departments lists (Sales is not in it)", 1 in mine and 2 not in mine, str(mine))
+    ft = next((t["id"] for t in call("GET", "/topics", token=TOK).data if t.get("dept_id") and t["dept_id"] not in mine), None)
+    if ft:
+        r = call("POST", "/tickets", dict(body, subject=subj + " topic", topic_id=ft), token=TOK2)
+        check("D1: a help topic that routes to a department it cannot access -> 403 as well (same rule, no bypass by topic)",
+              r.status == 403 and r.details.get("reason") == "department_not_accessible", r.raw[:160])
+    else:
+        skip("D1 topic routing", "no help topic routes to a department outside agent2's set")
+    check("D1: an unknown department is still 422", call("POST", "/tickets", dict(body, subject=subj + " x", dept_id=99999), token=TOK2).status == 422)
+    r = call("POST", "/tickets", dict(body, subject=subj + " admin-sales", dept_id=2), token=TOK)
+    check("D1 control: an administrator (access to every department) creates in Sales -> 201", r.status == 201, r.raw[:120])
+else:
+    skip("D1 department restriction", "needs AGENT2_USER/AGENT2_PASS")
+
+# --- D2: last_change.actor is the normalized actor {type,id,name}; the login never appears ---
+def stale_conflict(actor_token):
+    tk = call("POST", "/tickets", {"subject": "actor privacy %s" % uuid.uuid4().hex[:6], "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK).data["id"]
+    call("PATCH", "/tickets/%d/fields/priority" % tk, {"value": 3, "base": 2}, token=actor_token)      # the change that becomes last_change
+    return call("PATCH", "/tickets/%d/fields/priority" % tk, {"value": 4, "base": 2}, token=TOK)        # stale base -> 409
+
+
+r = stale_conflict(TOK)
+lc = r.details.get("last_change") or {}
+act = lc.get("actor")
+check("D2: a 409 carries last_change.actor as {type:'staff', id, name}", r.status == 409 and isinstance(act, dict) and act.get("type") == "staff" and isinstance(act.get("id"), int) and act.get("name"), r.raw[:200])
+check("D2: ... with no login/username field and staff_id kept for the person cache", set(act or {}) == {"type", "id", "name"} and "staff_id" in lc, r.raw[:200])
+check("D2: ... the admin login never appears in the response (unless it is also the display name)", ADMIN[0] not in r.raw or (act or {}).get("name") == ADMIN[0])
+if TOK3:
+    r = stale_conflict(TOK3)
+    act = (r.details.get("last_change") or {}).get("actor") or {}
+    check("D2: another agent's change -> actor names that agent, not its login ('%s')" % A3[0], r.status == 409 and act.get("type") == "staff" and act.get("name") and A3[0] not in r.raw, r.raw[:200])
+else:
+    skip("D2 second actor", "needs agent3")
+
+# --- D3/D4: cid: and data: (and file.php?key= URLs, which the core turns into cid:) are rejected in every free-text field ---
+def data_uri():
+    return '<p>x</p><img src="data:image/png;base64,%s">' % base64.b64encode(("PNG-e2e-%s-%s" % (U, uuid.uuid4().hex[:8])).encode()).decode()
+
+
+def fresh_ticket(tk=TOK):
+    return call("POST", "/tickets", {"subject": "inline %s" % uuid.uuid4().hex[:6], "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=tk).data["id"]
+
+
+if sql("select 1") is None:
+    skip("D3/D4 inline content", "no DB access (attachment counts need prod-sandbox/sql.sh)")
+else:
+    b_, c_ = multipart("file", "cid-private-%s.txt" % U, b"admin private upload for the cid probe " + uuid.uuid4().hex.encode())
+    PF = call("POST", "/files", raw=b_, ctype=c_, token=TOK).data
+    cid_html = '<p>x</p><img src="cid:%s">' % PF["hash"]
+    url_html = '<p>x</p><img src="https://host.example/scp/file.php?key=%s&expires=1&signature=a">' % PF["hash"]
+    T_OWN = fresh_ticket(TOK2) if TOK2 else fresh_ticket()
+    tk2 = TOK2 or TOK
+    att0, file0, mail0 = n_rows("ost_attachment"), n_rows("ost_file"), mp_total()
+    if TOK2:
+        check("D3: before the attempt, another agent's unattached upload is 403 for agent2", file_status(PF["hash"], TOK2) == 403)
+    r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": cid_html, "body_format": "html"}, token=tk2)
+    check("D3: a foreign cid:<key> in an HTML note -> 422 validation_failed / inline_cid_not_supported", r.status == 422 and r.err == "validation_failed" and r.details.get("reason") == "inline_cid_not_supported" and (r.json["error"].get("field") == "body"), r.raw[:200])
+    if TOK2:
+        check("D3: ... and the foreign file is still 403 for agent2 (accessibility unchanged)", file_status(PF["hash"], TOK2) == 403)
+    r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": url_html, "body_format": "html"}, token=tk2)
+    check("D3: a .../file.php?key=<key> URL (the core turns it into cid:) -> 422 inline_cid_not_supported", r.status == 422 and r.details.get("reason") == "inline_cid_not_supported", r.raw[:200])
+    for label, h in (("single-quoted", '<img src=\'cid:%s\'>' % PF["hash"]), ("upper-case", '<IMG SRC="CID:%s">' % PF["hash"]),
+                     ("entity-encoded", '<img src="c&#105;d:%s">' % PF["hash"]), ("unquoted", '<img src=cid:%s>' % PF["hash"])):
+        r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": h, "body_format": "html"}, token=tk2)
+        check("D3: obfuscated cid: (%s) -> 422" % label, r.status == 422 and r.details.get("reason") == "inline_cid_not_supported", r.raw[:160])
+    r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": data_uri(), "body_format": "html"}, token=tk2)
+    check("D4: a data: image in an HTML note -> 422 validation_failed / inline_data_not_supported", r.status == 422 and r.err == "validation_failed" and r.details.get("reason") == "inline_data_not_supported", r.raw[:200])
+    for label, h in (("declared MIME", '<img src="data:application/x-msdownload;base64,QUJDRA==">'), ("single-quoted", "<img src='data:text/plain,hi'>"),
+                     ("entity-encoded", '<img src="da&#116;a:image/png;base64,QUJDRA==">')):
+        r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": h, "body_format": "html"}, token=tk2)
+        check("D4: data: variant (%s) -> 422" % label, r.status == 422 and r.details.get("reason") == "inline_data_not_supported", r.raw[:160])
+    check("D3/D4: no attachment, no stored file and no e-mail were produced by any of those attempts",
+          (n_rows("ost_attachment"), n_rows("ost_file")) == (att0, file0) and (mail0 is None or mp_total() == mail0), "%s/%s -> %s/%s" % (att0, file0, n_rows("ost_attachment"), n_rows("ost_file")))
+
+    # text mode: the core matches these patterns on the SANITIZED body, where the escaping of plain text is already undone
+    # (found while writing this test: a literal "cid:<key>" in a TEXT note still attached the file), so text is guarded too
+    for label, lit, reason in (("cid:", cid_html, "inline_cid_not_supported"), ("data:", data_uri(), "inline_data_not_supported"), ("file.php?key=", url_html, "inline_cid_not_supported")):
+        r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": lit + "<b>literal</b>", "body_format": "text"}, token=tk2)
+        check("D3/D4: body_format=text (the default) carrying a literal %s reference -> 422 %s, not an attachment" % (label, reason), r.status == 422 and r.details.get("reason") == reason, r.raw[:180])
+    check("D3/D4: ... and none of them created an attachment or file", (n_rows("ost_attachment"), n_rows("ost_file")) == (att0, file0))
+    plain = 'say "hi" <p>x</p><img src="x.png"><b>literal</b> it\'s a & b; note: data: x, y and cid: 5'
+    r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": plain, "body_format": "text"}, token=tk2)
+    eb = (r.data or {}).get("entry", {}).get("body", "")
+    check("D3/D4: any other text (quotes, markup, prose that mentions data:/cid:) is accepted (201) and stays escaped, never interpreted",
+          r.status == 201 and "<img" not in eb and "<b>" not in eb and "&lt;img" in eb and (r.data["entry"]["body_text"] == plain), r.raw[:220])
+    check("D3/D4: ... and it created no attachment or file", (n_rows("ost_attachment"), n_rows("ost_file")) == (att0, file0))
+    r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": "<p>fine <b>markup</b> and a sentence: data: x, y, cid: 5</p>", "body_format": "html"}, token=tk2)
+    check("body_format=html itself is NOT removed: supported markup (and prose that merely mentions data:/cid:) -> 201", r.status == 201 and "<b>markup</b>" in r.data["entry"]["body"], r.raw[:200])
+
+    # every route that hands free text to the core parser (one common guard, not one per endpoint)
+    sweep_att, sweep_tk = n_rows("ost_attachment"), n_rows("ost_ticket")
+    subj_sweep = "inline sweep %s" % U
+    KID = call("POST", "/tickets/%d/tasks" % fresh_ticket(), {"title": "sweep task", "description": "d"}, token=TOK).data["id"]
+    KID2 = call("POST", "/tickets/%d/tasks" % fresh_ticket(), {"title": "sweep task 2", "description": "d"}, token=TOK).data["id"]
+    NOTE = call("POST", "/tickets/%d/notes" % T_OWN, {"body": "to be edited"}, token=tk2).data["entry"]["id"]
+    routes_ = [
+        ("POST /tickets (message)", lambda h: call("POST", "/tickets", {"subject": subj_sweep, "message": h, "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK)),
+        ("POST /tickets/{id}/notes", lambda h: call("POST", "/tickets/%d/notes" % T_OWN, {"body": h, "body_format": "html"}, token=tk2)),
+        ("PATCH /tickets/{id}/notes/{entry}", lambda h: call("PATCH", "/tickets/%d/notes/%d" % (T_OWN, NOTE), {"body": h, "body_format": "html"}, token=tk2)),
+        ("POST /tickets/{id}/replies", lambda h: call("POST", "/tickets/%d/replies" % T_OWN, {"body": h, "body_format": "html", "notify": "none"}, token=TOK)),
+        ("POST /tickets/{id}/claim (comment)", lambda h: call("POST", "/tickets/%d/claim" % fresh_ticket(), {"comment": h}, token=TOK)),
+        ("POST /tickets/{id}/status (comment)", lambda h: call("POST", "/tickets/%d/status" % fresh_ticket(), {"status_id": 3, "base": 1, "comment": h}, token=TOK)),
+        ("POST /tickets/{id}/transfer (comment)", lambda h: call("POST", "/tickets/%d/transfer" % fresh_ticket(), {"dept_id": 2, "base": 1, "comment": h}, token=TOK)),
+        ("PATCH /tickets/{id}/fields/priority (comment)", lambda h: call("PATCH", "/tickets/%d/fields/priority" % fresh_ticket(), {"value": 3, "base": 2, "comment": h}, token=TOK)),
+        ("POST /tickets/{id}/tasks (description)", lambda h: call("POST", "/tickets/%d/tasks" % fresh_ticket(), {"title": "sweep", "description": h}, token=TOK)),
+        ("POST /tasks/{id}/notes", lambda h: call("POST", "/tasks/%d/notes" % KID, {"body": h, "body_format": "html"}, token=TOK)),
+        ("POST /tasks/{id}/status (comment)", lambda h: call("POST", "/tasks/%d/status" % KID2, {"status": "closed", "base": "open", "comment": h}, token=TOK)),
+    ]
+    for label, fn in routes_:
+        rs = [fn(data_uri()), fn(cid_html), fn(url_html)]
+        check("inline guard: %s rejects data:, cid: and file.php?key= (422 each)" % label,
+              [x.status for x in rs] == [422] * 3 and [x.details.get("reason") for x in rs] == ["inline_data_not_supported", "inline_cid_not_supported", "inline_cid_not_supported"],
+              str([(x.status, x.details.get("reason")) for x in rs]))
+    check("inline guard: none of those creates an attachment, and the rejected POST /tickets created no ticket",
+          n_rows("ost_attachment") == sweep_att and (sql("select count(*) from ost_ticket__cdata where subject = '%s'" % subj_sweep) or ["?"])[0] == "0")
 
 # ------------------------------------------------------------------ login throttling
 print("\n[login throttling per user + real IP]")

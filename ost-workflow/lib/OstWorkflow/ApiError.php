@@ -11,6 +11,7 @@ class ApiError extends \Exception {
     const CATALOG = [
         'unauthorized'            => 401,
         'forbidden'               => 403,
+        'two_factor_required'     => 403,
         'not_found'               => 404,
         'method_not_allowed'      => 405,
         'validation_failed'       => 422,

@@ -381,12 +381,28 @@ final class Ticketing {
     static function lastChange($t, $group) {
         $names = self::EVENT_NAMES[$group] ?? ['edited'];
         $in = implode(',', array_map(function ($n) { return Store::esc($n); }, $names));
-        $r = Store::row('SELECT e.timestamp, e.username, e.staff_id, ev.name FROM ' . THREAD_EVENT_TABLE . ' e JOIN '
+        $r = Store::row('SELECT e.timestamp, e.uid, e.uid_type, e.staff_id, ev.name FROM ' . THREAD_EVENT_TABLE . ' e JOIN '
             . TABLE_PREFIX . 'event ev ON ev.id=e.event_id WHERE e.thread_id=' . (int) $t->getThreadId()
             . ' AND ev.name IN (' . $in . ') ORDER BY e.id DESC LIMIT 1');
         if (!$r) return null;
-        return ['event' => $r['name'], 'at' => Time::iso($r['timestamp']), 'actor' => $r['username'] ?: null,
+        return ['event' => $r['name'], 'at' => Time::iso($r['timestamp']), 'actor' => self::eventActor($r['uid'], $r['uid_type']),
                 'staff_id' => $r['staff_id'] ? (int) $r['staff_id'] : null];
+    }
+
+    /**
+     * D2 (MSOLIS 2026-09-28): the normalized actor {type, id, name} of the API (OW-REQ-03), never the login
+     * (thread_event.username holds the agent's user name; exposing it would undo H-5).
+     */
+    private static function eventActor($uid, $uidType) {
+        if ($uid && $uidType === 'S') {
+            $s = \Staff::lookup((int) $uid);
+            return ['type' => 'staff', 'id' => (int) $uid, 'name' => $s ? Threading::personName($s) : null];
+        }
+        if ($uid && $uidType === 'U') {
+            $u = \User::lookup((int) $uid);
+            return ['type' => 'user', 'id' => (int) $uid, 'name' => $u ? Threading::personName($u) : null];
+        }
+        return ['type' => 'system', 'id' => null, 'name' => 'SYSTEM'];
     }
 
     /** Map a failed core call to a typed error (403 vs validation vs conflict). */

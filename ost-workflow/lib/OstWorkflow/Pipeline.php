@@ -47,6 +47,7 @@ final class Pipeline {
                 list($status, $body, $headers) = $replay;
             } else {
                 Policy::authorize($req);
+                if ($req->isWrite()) Threading::assertRequestHasNoInlineContent($req);
                 $res = call_user_func([$route['class'], $route['action']], $req);
                 if ($res instanceof Stream) {
                     $status = 200; $body = $res;

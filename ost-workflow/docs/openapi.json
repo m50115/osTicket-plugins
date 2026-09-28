@@ -38,6 +38,7 @@
                                 "enum": [
                                     "unauthorized",
                                     "forbidden",
+                                    "two_factor_required",
                                     "not_found",
                                     "method_not_allowed",
                                     "validation_failed",

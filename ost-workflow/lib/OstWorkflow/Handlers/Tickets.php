@@ -405,14 +405,25 @@ final class Tickets {
             $vars['source'] = $src;
         }
 
-        // Department: only when explicit (the topic decides otherwise). Role check per department.
-        if (($deptId = self::intOrNull($b, 'dept_id'))) {
-            if (!($dept = \Dept::lookup($deptId)))
-                throw ApiError::validation('Unknown department', 'dept_id');
-            $role = $staff->getRole($dept);
+        // Department: explicit, else the topic's, else the helpdesk default (the core decides in that order). D1 (MSOLIS
+        // 2026-09-28): the agent needs REAL access to it — the same set GET /departments lists. Staff::getRole() answers
+        // a synthetic create-only role for any other department (class.staff.php:607-610), which is not enough here.
+        $explicitDept = self::intOrNull($b, 'dept_id');
+        if ($explicitDept && !\Dept::lookup($explicitDept))
+            throw ApiError::validation('Unknown department', 'dept_id');
+        global $cfg;
+        $effectiveDept = $explicitDept ?: ((int) $topic->getDeptId() ?: (int) $cfg->getDefaultDeptId());
+        if ($effectiveDept) {
+            if (!array_key_exists($effectiveDept, $staff->getDepartmentNames(true)))
+                throw new ApiError('forbidden', 'You do not have access to the department this ticket would be created in',
+                    $explicitDept ? 'dept_id' : 'topic_id',
+                    ['reason' => 'department_not_accessible', 'dept_id' => $effectiveDept]);
+            $role = $staff->getRole($effectiveDept);
             if (!$role || !$role->hasPerm('ticket.create'))
                 throw new ApiError('forbidden', 'You do not have permission to create tickets in this department');
-            $vars['deptId'] = $deptId;
+        }
+        if ($explicitDept) {
+            $vars['deptId'] = $explicitDept;
             $deptRole = $role;
         }
 

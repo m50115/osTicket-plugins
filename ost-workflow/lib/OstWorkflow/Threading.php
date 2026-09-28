@@ -31,6 +31,9 @@ final class Threading {
         $format = $req->input('body_format', 'text');
         if (!in_array($format, ['text', 'html'], true))
             throw ApiError::validation("'body_format' must be 'text' or 'html'", 'body_format');
+        // Both formats: the core matches on the sanitized body, where the escaping of plain text is already undone
+        // (verified: a literal "cid:<key>" in a text note still attached the file). See assertNoInlineContent().
+        self::assertNoInlineContent($raw, $field);
         if ($format === 'text') {
             $raw = str_replace(["\r\n", "\r"], "\n", $raw);
             $raw = self::textToHtml($raw);
@@ -38,6 +41,49 @@ final class Threading {
             $raw = self::protectLt($raw);
         }
         return new \HtmlThreadEntryBody($raw);
+    }
+
+    /**
+     * Free-text fields the core ALWAYS parses as HTML thread content (no body_format switch): ticket `message`, the
+     * `comment` of transfer/assign/claim/status/field changes, task `description`. Checked once, by the pipeline.
+     */
+    const HTML_TEXT_FIELDS = ['message', 'comment', 'comments', 'description', 'note'];
+
+    /** Pipeline hook: reject inline content in every free-text field of a write (see assertNoInlineContent). */
+    static function assertRequestHasNoInlineContent(Request $req) {
+        try {
+            $b = $req->json();
+        } catch (ApiError $e) {
+            return;   // not JSON: the handler reports it in its own terms
+        }
+        foreach (self::HTML_TEXT_FIELDS as $f)
+            if (isset($b[$f]) && is_string($b[$f]))
+                self::assertNoInlineContent($b[$f], $f);
+    }
+
+    /**
+     * V1 does not support inline content in HTML (MSOLIS 2026-09-28, D3/D4). The core turns three things in a body into
+     * attachments without the controls of POST /files: `cid:<key>` (attaches ANY stored file by key: a private upload of
+     * another agent became readable), `data:` URIs (a file with the MIME the client declares, outside type/size/count/
+     * budget) and `…/file.php?key=<key>` URLs (Format::localizeInlineImages turns them into `cid:<key>`). Rejected, never
+     * filtered or rewritten. Entities and control characters are undone first so an encoded scheme is caught too.
+     * Applies to `body_format=text` as well: plain text is escaped, but the core matches these patterns on the sanitized body.
+     * @throws ApiError validation_failed, details.reason = inline_cid_not_supported | inline_data_not_supported
+     */
+    static function assertNoInlineContent($raw, $field) {
+        $d = (string) $raw;
+        for ($i = 0; $i < 3; $i++) {
+            $n = html_entity_decode($d, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($n === $d) break;
+            $d = $n;
+        }
+        $d = preg_replace('/[\x00-\x1f]+/', '', $d);
+        if (preg_match('/["\'=(]\s*cid\s*:/i', $d) || preg_match('/file\.php\?[^"\'>\s]*\bkey=/i', $d))
+            throw ApiError::validation('Inline content (cid: references) is not supported in this version', $field,
+                ['reason' => 'inline_cid_not_supported']);
+        if (preg_match('/["\'=(]\s*data\s*:\s*(?:[\w.+-]+\/[\w.+-]+)?\s*(?:;[^,"\'>]*)?,/i', $d))
+            throw ApiError::validation('Inline content (data: URIs) is not supported in this version', $field,
+                ['reason' => 'inline_data_not_supported']);
     }
 
     /** The text the request will publish, as a reader sees it (plain). */

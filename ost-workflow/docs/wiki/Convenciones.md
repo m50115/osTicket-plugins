@@ -6,7 +6,7 @@ Válidas para todas las rutas de `/workflow/v1`. Dentro de `v1` solo hay cambios
 Éxito: `{"data": …, "meta": {…}}` (`meta` es opcional). Error: `{"error": {"code", "message", "field"?, "details"?}}`. Toda ruta, incluidas las desconocidas, responde JSON (`404`/`405` tipados); un fallo interno es `500 internal_error` con un `request_id` (sin detalles internos).
 
 ## Autenticación
-`POST /auth/login {username, password}` usa los mismos backends que el panel de agentes (nativo, LDAP, OAuth2…) y devuelve un token firmado (`Authorization: Bearer <token>`). Cada petición vuelve a leer al agente: si se desactiva, pierde el acceso de inmediato. `POST /auth/logout` revoca el token actual; `{"all": true}` revoca todos los del agente. Una cuenta que requiera un segundo factor interactivo no puede iniciar sesión por esta API.
+`POST /auth/login {username, password}` usa los mismos backends que el panel de agentes (nativo, LDAP, OAuth2…) y devuelve un token firmado (`Authorization: Bearer <token>`). Cada petición vuelve a leer al agente: si se desactiva, pierde el acceso de inmediato. `POST /auth/logout` revoca el token actual; `{"all": true}` revoca todos los del agente. **Una cuenta con segundo factor (2FA) habilitado en osTicket no puede iniciar sesión por esta API** (V1, decisión de MSOLIS del 28-sep-2026): `403 two_factor_required`, sin token y antes de tocar los backends (tampoco se envía el código por correo). El 2FA de osTicket es una marca de la sesión del panel que la API no tiene; emularlo queda fuera de V1. Si la app necesita agentes con 2FA: requisito → OW-REQ → diseño explícito de un flujo con desafío.
 
 ## Idempotencia (escrituras)
 Toda escritura (`POST`, `PUT`, `PATCH`, `DELETE`, salvo login/logout) exige `Idempotency-Key` (8–64 caracteres: letras, números y guion; un UUID sirve). Reintentar con la misma clave devuelve la respuesta original con la cabecera `Idempotent-Replayed: true` y **no repite el efecto**.
@@ -29,7 +29,7 @@ Las actualizaciones de campos que pueden cambiar en paralelo (estado, asignació
 |---|---|
 | ya es el valor deseado | `200` con `applied:false` (éxito idempotente) |
 | igual a `base` | se aplica (`applied:true`) |
-| distinto | `409 conflict` con `details.current`, `details.base` y `details.last_change` (evento, hora, actor) |
+| distinto | `409 conflict` con `details.current`, `details.base` y `details.last_change` (`event`, `at`, `actor{type,id,name}` normalizado —nunca el login—, `staff_id`) |
 
 No existe "la última escritura gana". Falta `base` → `422` (campo `base`).
 
@@ -58,7 +58,8 @@ Las operaciones con efectos en el núcleo los piden explícitos: `notify` (`all`
 | Código | HTTP | Cuándo |
 |---|---|---|
 | `unauthorized` | 401 | token ausente, inválido, revocado o cuenta inactiva |
-| `forbidden` | 403 | falta un permiso (el mensaje lo nombra) |
+| `forbidden` | 403 | falta un permiso (el mensaje lo nombra) o el departamento no es accesible (`details.reason = department_not_accessible`) |
+| `two_factor_required` | 403 | la cuenta tiene segundo factor en osTicket: no puede iniciar sesión por la API |
 | `not_found` | 404 | recurso o ruta inexistente |
 | `method_not_allowed` | 405 | método incorrecto (`Allow`) |
 | `validation_failed` | 422 | dato inválido (`field`) |
