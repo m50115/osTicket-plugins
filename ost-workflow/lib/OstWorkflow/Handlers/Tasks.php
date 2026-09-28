@@ -28,6 +28,7 @@ final class Tasks {
             ['GET',  "$t/thread",                 'thread',       ['policy' => 'task.view']],
             ['POST', "$t/notes",                  'note',         ['policy' => 'task.view']],
             ['POST', "$t/replies",                'reply',        ['policy' => 'task.reply']],
+            ['PATCH', "$t/notes/(?P<entry>\d+)",  'editNote',     ['policy' => 'task.view']],
             ['POST', "$t/status",                 'status',       ['policy' => 'task.view']],
             ['POST', "$t/assignment",             'assign',       ['policy' => 'task.assign']],
             ['POST', "$t/transfer",               'transfer',     ['policy' => 'task.transfer']],
@@ -199,6 +200,14 @@ final class Tasks {
         if (!$entry) throw ApiError::fromErrors($errors, 'The note could not be posted');
         Attachments::assertAttached($entry, $files);
         return Res::created(['entry' => Threading::entry($entry)]);
+    }
+
+    /** PATCH /tasks/{id}/notes/{entry} — edit an internal note of the task thread (same rules as tickets). */
+    static function editNote(Request $req) {
+        $task = $req->ctx['task'];
+        list($applied, $current, $previous) = Threading::editNote($req, $task, $task->getThreadId(), $req->intParam('entry'));
+        return Res::ok(['applied' => $applied, 'entry' => Threading::entry($current),
+                        'superseded_entry_id' => $previous ? (int) $previous->getId() : null]);
     }
 
     static function reply(Request $req) {

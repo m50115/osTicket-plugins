@@ -27,6 +27,6 @@ El plugin no escribe archivos en su directorio (el phar no admite escritura y lo
 | Cuentas de portal, contraseñas de agente, lista de correos vetados | administración |
 | `setDeptId`, `setStaffId`, `assignToStaff` directos | escriben sin permisos, eventos ni alertas; se usan `transfer`/`assign` |
 | Endpoint de lote o transaccional | el núcleo no es transaccional |
-| Editar entradas del hilo | una edición crea otra entrada; se versiona con una nota nueva |
+| Editar respuestas públicas y mensajes de clientes | la respuesta ya se envió por correo; se corrige con una respuesta nueva. **Sí** se pueden editar las **notas internas** (`PATCH …/notes/{entry}`, con los permisos del panel) |
 | Adquirir el bloqueo del ticket | el lock de escritorio solo se lee |
 | URL de descarga del núcleo | exige sesión del panel |

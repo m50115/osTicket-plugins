@@ -116,6 +116,99 @@ final class Threading {
     }
 
     // ------------------------------------------------------------------
+    // Editing an internal note (mirrors TEA_EditThreadEntry, class.thread_actions.php:112-262)
+    // ------------------------------------------------------------------
+
+    /**
+     * Same rule as the SCP "Edit" action: the author, the department manager, or an agent whose role in the
+     * object's department has thread.edit.
+     */
+    static function canEditEntry(\Staff $staff, \ThreadEntry $entry, $object) {
+        if ((int) $staff->getId() === (int) $entry->staff_id) return true;
+        $dept = $object->getDept();
+        if ($dept && (int) $dept->getManagerId() === (int) $staff->getId()) return true;
+        $role = $staff->getRole($object->getDeptId(), $object->isAssigned($staff));
+        return $role && $role->hasPerm(\ThreadEntry::PERM_EDIT);
+    }
+
+    /**
+     * Edits an INTERNAL NOTE: creates a new entry (child of the old one, flagged edited, same position in the
+     * thread, editor recorded, attachments moved) and hides the old one. No e-mail is sent. Only notes: a public
+     * reply was already delivered to the customer and is not editable (neither in the SCP).
+     * The `{entry}` in the URL is the base: it must still be the latest version, else 409 with the current id.
+     * Unlike the SCP, successive edits by the same agent are NOT collapsed (a client that synced version N must
+     * still find it hidden, not deleted).
+     * @return array [$applied(bool), \ThreadEntry $current, \ThreadEntry|null $previous]
+     */
+    static function editNote(Request $req, $object, $threadId, $entryId) {
+        $staff = $req->staff;
+        $old = \ThreadEntry::lookup((int) $entryId);
+        if (!$old || (int) $old->thread_id !== (int) $threadId)
+            throw ApiError::notFound('entry');
+        if ($old->type !== 'N')
+            throw new ApiError('validation_failed', $old->type === 'R'
+                ? 'Only internal notes can be edited; a public reply was already sent to the customer (post a corrective reply instead)'
+                : 'Only internal notes can be edited; customer messages cannot be changed through the API',
+                'entry', ['reason' => 'not_editable_type', 'type' => $old->type]);
+        if (!$old->staff_id && !$old->user_id)
+            throw new ApiError('validation_failed', 'System entries cannot be edited', 'entry', ['reason' => 'system_entry']);
+        if (!self::canEditEntry($staff, $old, $object))
+            throw new ApiError('forbidden', 'Missing permission: thread.edit (or be the author or the department manager)');
+
+        // Base value: the entry the client saw must still be the latest version.
+        if ($old->flags & \ThreadEntry::FLAG_HIDDEN) {
+            $cur = (int) $old->id;
+            for ($i = 0; $i < 50; $i++) {
+                $r = Store::row('SELECT id FROM ' . THREAD_ENTRY_TABLE . ' WHERE pid=' . $cur . ' AND thread_id=' . (int) $threadId
+                    . ' AND (flags & ' . \ThreadEntry::FLAG_EDITED . ') <> 0 ORDER BY id DESC LIMIT 1');
+                if (!$r) break;
+                $cur = (int) $r['id'];
+            }
+            throw new ApiError('conflict', 'This note was edited since you read it', 'entry',
+                ['current_entry_id' => $cur !== (int) $old->id ? $cur : null, 'base_entry_id' => (int) $old->id]);
+        }
+
+        $new = self::bodyFromRequest($req);
+        $files = Attachments::resolve($req->input('file_ids'), $staff);
+        $title = $req->input('title');
+        if ($title !== null && !is_string($title)) throw ApiError::validation("'title' must be text", 'title');
+        $title = $title === null ? (string) $old->title : self::title($req);
+
+        if ((string) $new->getClean() === (string) $old->getBody() && (string) $title === (string) $old->title && !$files)
+            return [false, $old, null];
+
+        $entry = \ThreadEntry::create([
+            'poster'     => $old->poster,
+            'userId'     => $old->user_id,
+            'staffId'    => $old->staff_id,
+            'type'       => $old->type,
+            'threadId'   => $old->thread_id,
+            'recipients' => $old->recipients,
+            'pid'        => $old->id,
+            'title'      => \Format::htmlchars($title),
+            'body'       => $new,
+            'ip_address' => RateLimit::ip($req),
+        ]);
+        if (!$entry)
+            throw new ApiError('internal_error', 'The edited note could not be created');
+
+        // Move the (non-inline) attachments to the new version, then add the newly uploaded files.
+        $old->attachments->filter(['inline' => false])->update(['object_id' => $entry->id]);
+        if ($files)
+            Attachments::attachAll($entry, $files, $staff);
+
+        $entry->flags = ($old->flags & ~(\ThreadEntry::FLAG_HIDDEN | \ThreadEntry::FLAG_GUARDED)) | \ThreadEntry::FLAG_EDITED;
+        $entry->editor = $staff->getId();
+        $entry->editor_type = 'S';
+        $entry->created = $old->created;           // sorts in the same place
+        $entry->updated = \SqlFunction::NOW();
+        $entry->save(true);
+        $old->flags |= \ThreadEntry::FLAG_HIDDEN;   // hide the previous version
+        $old->save();
+        return [true, \ThreadEntry::lookup((int) $entry->id), $old];
+    }
+
+    // ------------------------------------------------------------------
     // CC handling for replies (mirrors scp/tickets.php:200-218)
     // ------------------------------------------------------------------
 

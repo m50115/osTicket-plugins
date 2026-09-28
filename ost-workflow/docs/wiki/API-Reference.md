@@ -1,6 +1,6 @@
 # Referencia de la API
 
-Índice de las **93 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin. El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
+Índice de las **95 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin. El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
 
 La columna **Permiso** es el nombre de la política que el plugin aplica *antes* del handler (réplica de la matriz del panel de agentes de osTicket): `auth` = cualquier agente activo; `ticket.<x>` / `task.<x>` = permiso de rol en el departamento del objeto; `global.<x>` = permiso global del agente; `anydept.<x>` = permiso en al menos un departamento.
 
@@ -80,6 +80,7 @@ Detalle: [threads-files.md](../endpoints/threads-files.md)
 | `POST` | `/workflow/v1/tickets/{id}/replies` | `ticket.reply` |
 | `POST` | `/workflow/v1/tickets/{id}/notes` | `ticket.view` |
 | `POST` | `/workflow/v1/tickets/{id}/notes/{entry}/files` | `ticket.view` |
+| `PATCH` | `/workflow/v1/tickets/{id}/notes/{entry}` | `ticket.view` |
 | `POST` | `/workflow/v1/files` | `auth` |
 | `GET` | `/workflow/v1/files/{hash}` | `auth` |
 
@@ -128,6 +129,7 @@ Detalle: [tasks.md](../endpoints/tasks.md)
 | `GET` | `/workflow/v1/tasks/{id}/thread` | `task.view` |
 | `POST` | `/workflow/v1/tasks/{id}/notes` | `task.view` |
 | `POST` | `/workflow/v1/tasks/{id}/replies` | `task.reply` |
+| `PATCH` | `/workflow/v1/tasks/{id}/notes/{entry}` | `task.view` |
 | `POST` | `/workflow/v1/tasks/{id}/status` | `task.view` |
 | `POST` | `/workflow/v1/tasks/{id}/assignment` | `task.assign` |
 | `POST` | `/workflow/v1/tasks/{id}/transfer` | `task.transfer` |

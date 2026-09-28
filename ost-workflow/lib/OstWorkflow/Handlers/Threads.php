@@ -20,6 +20,7 @@ final class Threads {
             ['POST', '/tickets/(?P<id>\d+)/replies',  'reply',    ['policy' => 'ticket.reply']],
             ['POST', '/tickets/(?P<id>\d+)/notes',    'note',     ['policy' => 'ticket.view']],
             ['POST', '/tickets/(?P<id>\d+)/notes/(?P<entry>\d+)/files', 'noteFiles', ['policy' => 'ticket.view']],
+            ['PATCH', '/tickets/(?P<id>\d+)/notes/(?P<entry>\d+)', 'editNote', ['policy' => 'ticket.view']],
         ];
     }
 
@@ -190,6 +191,17 @@ final class Threads {
         $effects = Threading::effects($before, Threading::snapshot($ticket));
         $effects['alert'] = $alert;
         return Res::created(['entry' => Threading::entry($entry), 'effects' => $effects]);
+    }
+
+    // ------------------------------------------------------------------
+    // PATCH /tickets/{id}/notes/{entry} — edit an INTERNAL note (Threading::editNote)
+    // {body, body_format?, title?, file_ids?}; {entry} = the version the client saw (409 if it is not the latest)
+    // ------------------------------------------------------------------
+    static function editNote(Request $req) {
+        $ticket = $req->ctx['ticket'];
+        list($applied, $current, $previous) = Threading::editNote($req, $ticket, $ticket->getThreadId(), $req->intParam('entry'));
+        return Res::ok(['applied' => $applied, 'entry' => Threading::entry($current),
+                        'superseded_entry_id' => $previous ? (int) $previous->getId() : null]);
     }
 
     // ------------------------------------------------------------------
