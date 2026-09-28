@@ -5,6 +5,8 @@ End-to-end regression suite for ost-workflow (HTTP, against a running sandbox).
   python3 e2e.py [BASE]           default BASE = http://127.0.0.1:8090/api/workflow/v1
   env: SB_ADMIN_USER / SB_ADMIN_PASS (default: read from ~/development/ost-sandbox/credentials.env)
        AGENT2_USER / AGENT2_PASS  (a Limited-Access agent; if missing, the permission checks are skipped)
+       AGENT3_USER / AGENT3_PASS  (a non-admin, non-manager agent with ticket.edit, e.g. Expanded Access in dept 1; or SCR/agent3.env;
+                                   if missing, the department-manager SLA checks are skipped)
 
 Each run creates its own data (unique emails/subjects); nothing is deleted afterwards.
 Covers the regression chains RC-* of the Technical Notes: routing, auth/tokens, idempotency and crash recovery,
@@ -166,6 +168,11 @@ if A2[0]:
 else:
     skip("logout all", "needs AGENT2_USER/AGENT2_PASS (it would revoke the admin's tokens)")
 TOK2 = login(*A2) if A2[0] else None
+A3 = (os.environ.get("AGENT3_USER"), os.environ.get("AGENT3_PASS"))
+if not A3[0] and os.environ.get("SCR"):
+    e3 = load_env(os.path.join(os.environ["SCR"], "agent3.env"))
+    A3 = (e3.get("AGENT3_USER"), e3.get("AGENT3_PASS"))
+TOK3 = login(*A3) if A3[0] else None
 
 # ------------------------------------------------------------------ catalogs
 print("\n[catalogs, forms, canned]")
@@ -268,8 +275,8 @@ r = call("POST", "/tickets/%d/transfer" % TID, {"dept_id": 2, "base": 1, "commen
 check("transfer with base", r.status == 200 and r.data["ticket"]["dept"]["id"] == 2 and r.data["visible_to_caller"] is True)
 r = call("DELETE", "/tickets/%d/assignment" % TID, {"base": "s1", "comment": "e2e"}, token=TOK)
 check("release", r.status == 200 and r.data["applied"] and r.data["ticket"]["assignee"] is None)
-r = call("PUT", "/tickets/%d/owner" % TID, {"user_id": UID, "base": UID}, token=TOK)
-check("owner already the desired one is a no-op", r.status == 200 and r.data["applied"] is False)
+check("PC-S1: PUT /tickets/{id}/owner is retired", call("PUT", "/tickets/%d/owner" % TID, {"user_id": UID, "base": UID}, token=TOK).status in (404, 405))
+check("PC-S1: /actions no longer advertises change_owner", "change_owner" not in call("GET", "/tickets/%d/actions" % TID, token=TOK).data["actions"])
 
 # collaborators
 r = call("POST", "/tickets/%d/collaborators" % TID, {"user_id": 1}, token=TOK)
@@ -497,7 +504,7 @@ else:
 
 # ------------------------------------------------------------------ hardening (2026-09-28)
 print("\n[hardening: frozen surface, removed routes, mass assignment, directory, cross-department, budgets]")
-FROZEN_ROUTES = 103
+FROZEN_ROUTES = 102
 oa = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ost-workflow", "docs", "openapi.json")))
 ops = [(m.upper(), p) for p, v in oa["paths"].items() for m in v if m in ("get", "post", "put", "patch", "delete")]
 check("frozen surface: %d routes in the OpenAPI generated from the route table" % FROZEN_ROUTES, len(ops) == FROZEN_ROUTES, "found %d" % len(ops))
@@ -654,6 +661,71 @@ if TOK2:
         skip("hourly budgets", "no DB access")
 else:
     skip("directory, cross-department and budget checks", "no AGENT2_USER/AGENT2_PASS")
+
+# ------------------------------------------------------------------ MSOLIS decisions PC-S1..PC-S5 (2026-09-28)
+print("\n[PC-S2..PC-S5: SLA curbs, contact e-mail, organization sharing, token lifetime]")
+# PC-S2: disable / clear_overdue need the department manager (agent3 = Expanded Access: has ticket.edit, is not a manager)
+if TOK3 and sql("select 1") is not None:
+    ET = call("POST", "/tickets", {"subject": "sla curbs %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK).data["id"]
+    def eb():
+        x = call("GET", "/tickets/%d/sla" % ET, token=TOK).data
+        return {"sla_id": (x["plan"] or {}).get("id"), "due": x["due"]["effective"]}
+    call("POST", "/tickets/%d/sla" % ET, {"action": "enable", "sla_id": 1, "base": eb()}, token=TOK)
+    sql("update ost_ticket set est_duedate=DATE_SUB(NOW(), INTERVAL 3 HOUR), duedate=NULL, isoverdue=1 where ticket_id=%d" % ET)
+    try:
+        r = call("POST", "/tickets/%d/sla" % ET, {"action": "disable", "base": eb()}, token=TOK3)
+        check("PC-S2: an agent with ticket.edit who is not the manager cannot disable the SLA", r.status == 403 and r.details.get("reason") == "department_manager_required", r.raw[:120])
+        r = call("POST", "/tickets/%d/sla" % ET, {"action": "clear_overdue", "base": eb()}, token=TOK3)
+        check("PC-S2: ... nor clear the overdue flag", r.status == 403 and r.details.get("reason") == "department_manager_required", r.raw[:120])
+        x = call("GET", "/tickets/%d/sla" % ET, token=TOK3)
+        check("PC-S2: nothing changed, and /sla does not offer those actions to that agent", x.data["plan"] is not None and x.data["is_overdue"] is True and x.meta["actions"]["disable"] is False and x.meta["actions"]["clear_overdue"] is False)
+        r = call("POST", "/tickets/%d/sla" % ET, {"action": "extend", "hours": 2, "base": eb()}, token=TOK3)
+        check("PC-S2: restart/extend/enable stay with ticket.edit (extend works for that agent)", r.status == 200 and r.data["applied"], r.raw[:120])
+        sql("update ost_department set manager_id=3 where id=1")
+        sql("update ost_ticket set est_duedate=DATE_SUB(NOW(), INTERVAL 3 HOUR), duedate=NULL, isoverdue=1 where ticket_id=%d" % ET)
+        x = call("GET", "/tickets/%d/sla" % ET, token=TOK3)
+        check("PC-S2: the department manager is offered both", x.meta["actions"]["disable"] is True and x.meta["actions"]["clear_overdue"] is True)
+        r = call("POST", "/tickets/%d/sla" % ET, {"action": "clear_overdue", "base": eb()}, token=TOK3)
+        check("PC-S2: the department manager can clear the overdue flag", r.status == 200 and r.data["sla"]["is_overdue"] is False, r.raw[:120])
+        r = call("POST", "/tickets/%d/sla" % ET, {"action": "disable", "base": eb(), "comment": "manager decision"}, token=TOK3)
+        check("PC-S2: the department manager can disable the SLA", r.status == 200 and r.data["sla"]["plan"] is None, r.raw[:120])
+        notes = [e["body_text"] for e in call("GET", "/tickets/%d/activity?limit=200" % ET, token=TOK).data if e.get("kind") == "entry" and e.get("audience") == "internal"]
+        check("PC-S2: the audit note is kept (internal SLA note with the actor's reason)", any("SLA disabled" in n and "manager decision" in n for n in notes) and any("Overdue flag cleared" in n for n in notes), str(notes)[:200])
+    finally:
+        sql("update ost_department set manager_id=0 where id=1")
+else:
+    skip("PC-S2 manager checks", "needs agent3 (AGENT3_USER/AGENT3_PASS or SCR/agent3.env) and DB access")
+
+# PC-S3: the e-mail address is not editable through the API
+before = call("GET", "/users/%d" % UID, token=TOK).data
+for body in ({"email": "changed-%s@example.com" % U, "base": {"email": before["email"]}},
+             {"fields": {"email": "changed-%s@example.com" % U}, "base": {"email": before["email"]}},
+             {"EMAIL": "changed-%s@example.com" % U, "base": {"email": before["email"]}}):
+    r = call("PATCH", "/users/%d" % UID, body, token=TOK)
+    check("PC-S3: PATCH /users/{id} refuses the e-mail (%s)" % ("fields" if "fields" in body else "top level"), r.status == 422 and r.err == "validation_failed" and r.details.get("reason") == "not_editable", r.raw[:120])
+after = call("GET", "/users/%d" % UID, token=TOK).data
+check("PC-S3: the contact is unchanged", after["email"] == before["email"] and after["emails"] == before["emails"])
+r = call("PATCH", "/users/%d" % UID, {"name": before["name"] + " b", "base": {"name": before["name"]}}, token=TOK)
+check("PC-S3: name and phone still editable", r.status == 200 and r.data["applied"])
+call("PATCH", "/users/%d" % UID, {"name": before["name"], "base": {"name": before["name"] + " b"}}, token=TOK)
+
+# PC-S4: sharing and the collaborator/assignment flags are not editable; manager/domain/primary contacts are
+o0 = call("GET", "/organizations/%d" % OID, token=TOK).data
+for body in ({"sharing": "everybody", "base": {"sharing": "primary"}}, {"flags": {"collab_all_members": True}, "base": {"flags": {"collab_all_members": False}}}):
+    r = call("PATCH", "/organizations/%d/profile" % OID, body, token=TOK)
+    check("PC-S4: profile refuses '%s'" % list(body)[0], r.status == 422 and r.details.get("reason") == "not_editable", r.raw[:120])
+newdom = "e2e2-%s.example.com" % U
+r = call("PATCH", "/organizations/%d/profile" % OID, {"domain": newdom, "base": {"domain": o0["domain"]}}, token=TOK)
+o1 = call("GET", "/organizations/%d" % OID, token=TOK).data
+check("PC-S4: domain still editable and every flag is preserved by the save", r.status == 200 and r.data["applied"] and o1["domain"] == newdom and o1["flags"] == o0["flags"], r.raw[:160])
+
+# PC-S5: device tokens live 14 days
+import base64
+def payload(tok):
+    part = tok.split(".")[0]
+    return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+pl = payload(TOK)
+check("PC-S5: token lifetime is 14 days", pl["exp"] - pl["iat"] == 14 * 86400, str(pl["exp"] - pl["iat"]))
 
 # ------------------------------------------------------------------ crash recovery (needs DB access)
 print("\n[idempotency crash recovery]")

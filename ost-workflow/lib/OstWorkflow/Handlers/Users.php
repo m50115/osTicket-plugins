@@ -132,22 +132,25 @@ final class Users {
     }
 
     /**
-     * PATCH /users/{id} {name?, email?, phone?, fields?:{name:value}, base:{name:value…}}
+     * PATCH /users/{id} {name?, phone?, fields?:{name:value}, base:{name:value…}}
      * `base` lists the current value of every field being changed (409 conflict when any differs).
+     * The e-mail address is NOT editable through the API (PC-S3, MSOLIS 2026-09-28): it is the contact's identity and
+     * where its mail and portal access go; who may change it is a decision for the Contacts module.
      */
     static function update(Request $req) {
         $u = $req->ctx['user'];
         $b = $req->json();
+        if (array_key_exists('email', array_change_key_case($b)) || (isset($b['fields']) && is_array($b['fields']) && array_key_exists('email', array_change_key_case($b['fields']))))
+            throw ApiError::validation("The e-mail address cannot be changed through the API", 'email', ['reason' => 'not_editable']);
         $changes = [];
-        foreach (['name', 'email', 'phone'] as $k)
+        foreach (['name', 'phone'] as $k)
             if (array_key_exists($k, $b)) $changes[$k] = trim((string) $b[$k]);
         if (isset($b['fields'])) {
             if (!is_array($b['fields'])) throw ApiError::validation("'fields' must be an object", 'fields');
             foreach ($b['fields'] as $k => $v)
                 if (is_string($k) && is_scalar($v)) $changes[$k] = trim((string) $v);
         }
-        if (!$changes) throw ApiError::validation('Nothing to update: send name, email, phone or fields');
-        if (isset($changes['email']) && !filter_var($changes['email'], FILTER_VALIDATE_EMAIL)) throw ApiError::validation('Invalid email address', 'email');
+        if (!$changes) throw ApiError::validation('Nothing to update: send name, phone or fields');
         if (!isset($b['base']) || !is_array($b['base'])) throw ApiError::validation("'base' is required: the current value of every field you change", 'base');
 
         $current = Contacts::rawAnswers('U', $u->getId());
@@ -166,8 +169,6 @@ final class Users {
         }
         if ($conflicts) throw new ApiError('conflict', 'A field changed on the server since you read it', null, ['current' => $conflicts]);
         if (!$apply) return Res::ok(['applied' => false, 'user' => Contacts::user($u)]);
-        if (isset($apply['email']) && ($o = \User::lookupByEmail($apply['email'])) && $o->getId() != $u->getId())
-            throw new ApiError('candidates', 'That email belongs to another contact', 'email', ['classification' => 'safe', 'matches' => [['reason' => 'same_email', 'user' => Contacts::userBrief($o)]]]);
 
         $vars = array_merge($current, $apply);
         $errors = [];

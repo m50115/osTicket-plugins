@@ -537,18 +537,8 @@
    "impact": "HIGH_IMPACT_UPDATE",
    "reversible": "partial (`clear_overdue`/`disable` drop deadlines)",
    "necessity": "REQUIRED_BY_CORE_WORKFLOW",
-   "abuse": "Can hide an SLA breach (disable, clear_overdue) with ticket.edit; every operation leaves an internal SLA note plus the core events.",
-   "recommendation": "NEEDS_MSOLIS_DECISION"
-  },
-  "PUT /tickets/{id}/owner": {
-   "category": "WORKFLOW_OPERATION",
-   "rw": "W",
-   "consumer": "none designed yet",
-   "impact": "HIGH_IMPACT_UPDATE",
-   "reversible": "partial (previous owner stays in the event log)",
-   "necessity": "NO_CONSUMER_YET",
-   "abuse": "Moves the whole conversation and portal access to another contact: a stolen token could hand a thread to a wrong or hostile address.",
-   "recommendation": "NEEDS_MSOLIS_DECISION"
+   "abuse": "`disable` and `clear_overdue` could hide an SLA breach: since PC-S2 (MSOLIS 2026-09-28) they need the department manager (or an administrator) on top of ticket.edit; `restart`, `extend`, `enable` stay with ticket.edit. Every operation leaves an internal SLA note plus the core events.",
+   "recommendation": "KEEP"
   },
   "POST /tickets/{id}/answered": {
    "category": "FIELD_OPERATION",
@@ -814,11 +804,11 @@
    "category": "WORKFLOW_OPERATION",
    "rw": "W",
    "consumer": "contacts",
-   "impact": "SECURITY_SENSITIVE",
+   "impact": "REVERSIBLE_UPDATE",
    "reversible": "yes (base value; old value in the event)",
    "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
-   "abuse": "Changing a contact's e-mail redirects its future mail and portal login: needs user.edit + base value.",
-   "recommendation": "NEEDS_MSOLIS_DECISION"
+   "abuse": "Name, phone and custom fields only, with user.edit + base value. The e-mail address is NOT editable (PC-S3, MSOLIS 2026-09-28): typed 422 `not_editable`.",
+   "recommendation": "KEEP"
   },
   "PUT /users/{id}/organization": {
    "category": "WORKFLOW_OPERATION",
@@ -924,11 +914,11 @@
    "category": "WORKFLOW_OPERATION",
    "rw": "W",
    "consumer": "none designed yet",
-   "impact": "ADMINISTRATIVE",
+   "impact": "REVERSIBLE_UPDATE",
    "reversible": "yes (base values)",
    "necessity": "NO_CONSUMER_YET",
-   "abuse": "Changes account manager, domain mapping, collaborator auto-add and ticket SHARING between members (`share_everybody`): exposure of tickets in the portal. Needs org.edit + base.",
-   "recommendation": "NEEDS_MSOLIS_DECISION"
+   "abuse": "Account manager, domain mapping and primary contacts only, with org.edit + base value. `sharing` and the collaborator/assignment flags are NOT editable (PC-S4, MSOLIS 2026-09-28): typed 422 `not_editable`; they are still read and preserved on save.",
+   "recommendation": "KEEP"
   },
   "PATCH /organizations/{id}/extra": {
    "category": "WORKFLOW_OPERATION",
@@ -1051,6 +1041,11 @@
    "route": "PATCH /me",
    "reason": "No consumer designed; `signature` is appended to customer e-mails (phishing vector for a stolen token) and `on_vacation` disables assignment. Re-introduce only if the Configuration module demonstrates the need, without `signature`.",
    "replacement": "none (GET /me stays)"
+  },
+  {
+   "route": "PUT /tickets/{id}/owner",
+   "reason": "PC-S1 (MSOLIS 2026-09-28): moves the whole conversation and portal access to another contact; no approved consumer. Reopen only through UX requirement -> demonstrated gap -> OW-REQ -> review.",
+   "replacement": "none"
   }
  ]
 }

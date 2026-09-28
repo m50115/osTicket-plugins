@@ -258,7 +258,6 @@ final class Ticketing {
             elseif (\Banlist::isBanned($t->getEmail())) $a['reply'] = ['allowed' => false, 'reason' => 'email_banned'];
         }
         $a['edit_fields'] = $need('ticket.edit');
-        $a['change_owner'] = $a['edit_fields'];
         $a['manage_collaborators'] = $a['edit_fields'];
         $a['mark_answered'] = $need('ticket.markanswered');
         $a['create_task'] = $perm('task.create') ? ['allowed' => true] : ['allowed' => false, 'reason' => 'missing_permission', 'permission' => 'task.create'];

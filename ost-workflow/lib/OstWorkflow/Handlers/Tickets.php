@@ -52,7 +52,6 @@ final class Tickets {
             ['PUT',    "$id/forms",                   'forms',    ['policy' => 'ticket.edit']],
             ['GET',    "$id/sla",                     'slaState', ['policy' => 'ticket.view']],
             ['POST',   "$id/sla",                     'sla',      ['policy' => 'ticket.edit']],
-            ['PUT',    "$id/owner",                   'owner',    ['policy' => 'ticket.edit']],
             ['POST',   "$id/answered",                'answered', ['policy' => 'ticket.markanswered']],
         ];
     }
@@ -858,7 +857,7 @@ final class Tickets {
 
     /** GET /tickets/{id}/sla — plan, deadlines and overdue flag, with what can be done. */
     static function slaState(Request $req) {
-        return Res::ok(self::slaView($req->ctx['ticket']), ['actions' => self::slaActions($req->ctx['ticket'])]);
+        return Res::ok(self::slaView($req->ctx['ticket']), ['actions' => self::slaActions($req->ctx['ticket'], $req->staff)]);
     }
 
     private static function slaView(\Ticket $t) {
@@ -875,14 +874,20 @@ final class Tickets {
         ];
     }
 
-    private static function slaActions(\Ticket $t) {
+    /** The department's manager (or an administrator) may disable the SLA or clear the overdue flag. */
+    private static function mayCurbSla(\Staff $s, \Ticket $t) {
+        return $s->isAdmin() || ($t->getDept() && $s->isManager($t->getDept()));
+    }
+
+    private static function slaActions(\Ticket $t, \Staff $s) {
         $open = $t->isOpen(); $has = (bool) $t->getSLA();
+        $curb = self::mayCurbSla($s, $t);
         return [
             'restart'       => $open && $has,
             'extend'        => $open && ($has || $t->getDueDate()),
-            'disable'       => $has,
+            'disable'       => $curb && $has,
             'enable'        => $open,
-            'clear_overdue' => $open && $t->isOverdue(),
+            'clear_overdue' => $curb && $open && $t->isOverdue(),
         ];
     }
 
@@ -917,6 +922,10 @@ final class Tickets {
         $action = $b['action'] ?? null;
         if (!in_array($action, ['restart', 'extend', 'disable', 'enable', 'clear_overdue'], true))
             throw ApiError::validation("'action' must be restart, extend, disable, enable or clear_overdue", 'action');
+        // PC-S2 (MSOLIS 2026-09-28): both can hide an SLA breach, so ticket.edit is not enough.
+        if (in_array($action, ['disable', 'clear_overdue'], true) && !self::mayCurbSla($req->staff, $t))
+            throw new ApiError('forbidden', "SLA '$action' is reserved to the department manager", 'action',
+                ['reason' => 'department_manager_required', 'action' => $action]);
         $base = Ticketing::requireBase($req);
         if (!is_array($base) || !array_key_exists('sla_id', $base) || !array_key_exists('due', $base))
             throw ApiError::validation("'base' must be {sla_id, due}: the plan id and the effective due date you saw (null when none)", 'base');
@@ -1001,21 +1010,6 @@ final class Tickets {
         $t->isoverdue = 0;
         if ($clearManual) $t->duedate = null;
         $t->save();
-    }
-
-    /** PUT /tickets/{id}/owner {user_id, base} */
-    static function owner(Request $req) {
-        $t = $req->ctx['ticket'];
-        $b = $req->json();
-        $uid = self::intOrNull($b, 'user_id');
-        if (!$uid) throw ApiError::validation("'user_id' is required", 'user_id');
-        $base = Ticketing::requireBase($req);
-        if (!($user = \User::lookup($uid))) throw ApiError::validation('Unknown user', 'user_id');
-        if (Ticketing::precondition($t, (int) $t->getOwnerId(), $base === null ? 0 : (int) $base, $uid, 'owner') === 'noop')
-            return Res::ok(['applied' => false, 'ticket' => Ticketing::summary($t)]);
-        if (!$t->changeOwner($user))
-            throw new ApiError('forbidden', 'The owner could not be changed');
-        return Res::ok(['applied' => true, 'ticket' => Ticketing::summary(\Ticket::lookup((int) $t->getId()))]);
     }
 
     /** POST /tickets/{id}/answered {answered: bool} — idempotent by nature. */

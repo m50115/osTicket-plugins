@@ -35,6 +35,8 @@ out=$(grep -rnE "^\s*\['(POST|PUT|PATCH|DELETE)'" "$SRC/lib/OstWorkflow/Handlers
 out=$(grep -rnE '\->delete\(|DELETE FROM|->purge\(' "$SRC/lib/OstWorkflow/Handlers" --include=*.php | grep -vE ':\s*(//|\*)' | head)
 [ -z "$out" ] && ok "no hard deletes in handlers (deactivate/supersede/append, never delete)" || bad "hard delete in a handler" "$out"
 
+grep -q "intSetting('token_ttl_days', 14)" "$SRC/lib/OstWorkflow/Token.php" && grep -A3 "'token_ttl_days'" "$SRC/config.php" | grep -q "'default'  => '14'" && ok "token lifetime baseline is 14 days (PC-S5)" || bad "token lifetime default is not 14 days (PC-S5)"
+
 if command -v python3 >/dev/null; then
   out=$(python3 "$HERE/gen-route-matrix.py" --check 2>&1) && ok "route classification covers every route in docs/openapi.json and Route-Surface.md is current" || bad "route matrix" "$out"
 fi

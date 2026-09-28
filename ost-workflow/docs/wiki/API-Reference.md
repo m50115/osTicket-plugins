@@ -1,6 +1,6 @@
 # Referencia de la API
 
-Índice de las **103 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
+Índice de las **102 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
 
 La columna **Permiso** es el nombre de la política que el plugin aplica *antes* del handler (réplica de la matriz del panel de agentes de osTicket): `auth` = cualquier agente activo; `ticket.<x>` / `task.<x>` = permiso de rol en el departamento del objeto; `global.<x>` = permiso global del agente; `anydept.<x>` = permiso en al menos un departamento.
 
@@ -75,7 +75,6 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 | `PUT` | `/workflow/v1/tickets/{id}/forms` | `ticket.edit` |
 | `GET` | `/workflow/v1/tickets/{id}/sla` | `ticket.view` |
 | `POST` | `/workflow/v1/tickets/{id}/sla` | `ticket.edit` |
-| `PUT` | `/workflow/v1/tickets/{id}/owner` | `ticket.edit` |
 | `POST` | `/workflow/v1/tickets/{id}/answered` | `ticket.markanswered` |
 
 ## Hilo, archivos y documentos

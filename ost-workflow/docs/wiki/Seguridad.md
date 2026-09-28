@@ -35,7 +35,7 @@ El plugin no escribe archivos en su directorio (el phar no admite escritura y lo
 | Editar el perfil propio (`PATCH /me`) | la firma llega por correo a los clientes y `on_vacation` frena las asignaciones; ningún módulo lo necesita (retirada el 2026-09-28) |
 
 ## Endurecimiento y línea base (2026-09-28)
-La superficie es de **103 rutas**, cada una clasificada (impacto, reversibilidad, necesidad, riesgo de abuso) en [`../security/Route-Surface.md`](../security/Route-Surface.md); la clasificación es la única fuente editable ([`route-classification.json`](../security/route-classification.json)) y `ci-check.sh` falla si una ruta queda sin clasificar. Sin borrados duros en ningún handler (guardia en CI). Controles añadidos en esta revisión, cada uno con prueba en `e2e.py`:
+La superficie es de **102 rutas**, cada una clasificada (impacto, reversibilidad, necesidad, riesgo de abuso) en [`../security/Route-Surface.md`](../security/Route-Surface.md); la clasificación es la única fuente editable ([`route-classification.json`](../security/route-classification.json)) y `ci-check.sh` falla si una ruta queda sin clasificar. Sin borrados duros en ningún handler (guardia en CI). Controles añadidos en esta revisión, cada uno con prueba en `e2e.py`:
 
 * **`fields` de `POST /tickets`** acepta solo campos personalizados del tema; `deptId`, `staffId`, `statusId`, `slaId`, `duedate`, `autorespond`… dan `422` (antes se pasaban al núcleo y saltaban las comprobaciones de departamento/asignación y el correo).
 * **Directorio de contactos y organizaciones:** con `user.dir` se navega, se pagina y se sincroniza (`/sync/users`, `/sync/organizations`); sin él, la búsqueda es del tamaño de un autocompletado (10 resultados, sin páginas, `q` ≥ 3) y un contacto/organización solo se lee si está en un ticket visible o lo creó el agente.
@@ -45,3 +45,10 @@ La superficie es de **103 rutas**, cada una clasificada (impacto, reversibilidad
 * El catálogo de agentes ya no publica los nombres de usuario (login).
 
 **Riesgo residual documentado:** un identificador de contacto (`user_id`) puede usarse al crear un ticket, cambiar el dueño, añadir colaboradores o poner `cc` sin acceso al directorio (igual que el panel); cada uso deja rastro visible en el ticket y la respuesta puede mostrar el nombre y el correo de ese contacto.
+
+### Decisiones de MSOLIS sobre la revisión (2026-09-28)
+* **PC-S1:** `PUT /tickets/{id}/owner` se retira de la superficie pública (mueve la conversación y el acceso al portal a otro contacto; sin consumidor aprobado). Se reabre solo por requisito de UX → gap demostrado → OW-REQ → revisión.
+* **PC-S2:** `disable` y `clear_overdue` del SLA solo los hace el gerente del departamento (o un administrador); dejan la nota interna «SLA» y los eventos. `restart`, `extend` y `enable` no cambian.
+* **PC-S3:** el correo de un contacto no se cambia por la API (`PATCH /users/{id}` conserva nombre, teléfono y campos personalizados).
+* **PC-S4:** `sharing` y las banderas de colaboradores/asignación de `PATCH /organizations/{id}/profile` no se cambian por la API; `manager`, `domain` y `primary_contacts` siguen.
+* **PC-S5:** vida del token de dispositivo de **14 días** y presupuestos por hora (100/200/60/300) como **guardarraíles iniciales**, configurables (`0` desactiva); se recalibrarán con uso real.

@@ -18,7 +18,7 @@ final class Token {
     }
 
     static function issue($staffId) {
-        $ttl = max(1, Runtime::intSetting('token_ttl_days', 30)) * 86400;
+        $ttl = max(1, Runtime::intSetting('token_ttl_days', 14)) * 86400;
         $now = time();
         $payload = ['v' => 1, 'id' => (int) $staffId, 'gen' => self::generation($staffId),
                     'jti' => bin2hex(random_bytes(12)), 'iat' => $now, 'exp' => $now + $ttl];

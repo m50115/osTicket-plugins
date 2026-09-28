@@ -16,7 +16,7 @@ class OstWorkflowConfig extends PluginConfig {
             )),
             'token_ttl_days' => new TextboxField(array(
                 'label'    => __('Token lifetime (days)'),
-                'default'  => '30',
+                'default'  => '14',
                 'required' => true,
                 'configuration' => array('size' => 6, 'length' => 4),
             )),

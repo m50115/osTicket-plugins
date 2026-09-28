@@ -2,18 +2,17 @@
 
 > Generado por `prod-sandbox/gen-route-matrix.py` a partir de `docs/openapi.json` (tabla real de rutas) y `docs/security/route-classification.json` (única fuente editable). No editar a mano.
 
-**103 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
+**102 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
 
 ## Por impacto
 
 | Valor | Rutas |
 |---|---|
 | READ_ONLY | 52 |
-| SECURITY_SENSITIVE | 19 |
-| REVERSIBLE_UPDATE | 16 |
+| SECURITY_SENSITIVE | 18 |
+| REVERSIBLE_UPDATE | 18 |
 | APPEND_ONLY | 9 |
-| HIGH_IMPACT_UPDATE | 6 |
-| ADMINISTRATIVE | 1 |
+| HIGH_IMPACT_UPDATE | 5 |
 
 ## Por necesidad
 
@@ -21,7 +20,7 @@
 |---|---|
 | REQUIRED_BY_DESIGNED_CONSUMER | 78 |
 | REQUIRED_BY_CORE_WORKFLOW | 15 |
-| NO_CONSUMER_YET | 6 |
+| NO_CONSUMER_YET | 5 |
 | USEFUL_BUT_NOT_REQUIRED | 4 |
 
 ## Por categoría
@@ -29,15 +28,14 @@
 | Valor | Rutas |
 |---|---|
 | FIELD_OPERATION | 54 |
-| WORKFLOW_OPERATION | 35 |
+| WORKFLOW_OPERATION | 34 |
 | SYSTEM_ADMINISTRATION | 14 |
 
 ## Por recomendación
 
 | Valor | Rutas |
 |---|---|
-| KEEP | 99 |
-| NEEDS_MSOLIS_DECISION | 4 |
+| KEEP | 102 |
 
 ## Rutas retiradas de la superficie pública (2026-09-28)
 
@@ -47,6 +45,7 @@
 | `POST /organizations/{id}/members` | Redundant with PUT /users/{id}/organization (base-checked); changes who sees organization-shared tickets; no consumer. | PUT /users/{id}/organization |
 | `DELETE /organizations/{id}/members/{uid}` | Same as above (org_id:null removes the organization). | PUT /users/{id}/organization {org_id:null} |
 | `PATCH /me` | No consumer designed; `signature` is appended to customer e-mails (phishing vector for a stolen token) and `on_vacation` disables assignment. Re-introduce only if the Configuration module demonstrates the need, without `signature`. | none (GET /me stays) |
+| `PUT /tickets/{id}/owner` | PC-S1 (MSOLIS 2026-09-28): moves the whole conversation and portal access to another contact; no approved consumer. Reopen only through UX requirement -> demonstrated gap -> OW-REQ -> review. | none |
 
 Cada una tiene una prueba negativa en `e2e.py` (404/405).
 
@@ -85,7 +84,7 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `GET /organizations/{id}/members` | R | `org.load` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent). | KEEP |
 | `GET /organizations/{id}/notes` | R | `org.load` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent). | KEEP |
 | `POST /organizations/{id}/notes` | R | `org.load` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent). | KEEP |
-| `PATCH /organizations/{id}/profile` | W | `org.edit` | none designed yet | WORKFLOW_OPERATION | ADMINISTRATIVE | yes (base values) | NO_CONSUMER_YET | Changes account manager, domain mapping, collaborator auto-add and ticket SHARING between members (`share_everybody`): exposure of tickets in the portal. Needs org.edit + base. | NEEDS_MSOLIS_DECISION |
+| `PATCH /organizations/{id}/profile` | W | `org.edit` | none designed yet | WORKFLOW_OPERATION | REVERSIBLE_UPDATE | yes (base values) | NO_CONSUMER_YET | Account manager, domain mapping and primary contacts only, with org.edit + base value. `sharing` and the collaborator/assignment flags are NOT editable (PC-S4, MSOLIS 2026-09-28): typed 422 `not_editable`; they are still read and preserved on save. | KEEP |
 | `GET /organizations/{id}/tickets` | R | `org.load` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent). | KEEP |
 | `GET /ping` | R | `auth` | core (health) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_CORE_WORKFLOW | Public; returns {"status":"ok"} only. | KEEP |
 | `GET /priorities` | R | `auth` | tickets, contacts, service_orders | SYSTEM_ADMINISTRATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Catalog/form definitions; no business data. ETag/304. | KEEP |
@@ -134,7 +133,6 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `POST /tickets/{id}/notes` | W | `ticket.view` | tickets, service_orders, pdf_signer | FIELD_OPERATION | APPEND_ONLY | n/a (append-only) | REQUIRED_BY_DESIGNED_CONSUMER | Internal only; alert default false; files must be the agent's own uploads; PDF needs explanatory text. | KEEP |
 | `PATCH /tickets/{id}/notes/{entry}` | W | `ticket.view` | tickets | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (old version kept hidden) | REQUIRED_BY_DESIGNED_CONSUMER | Internal notes only; edit = new linked entry, old one hidden and kept; never e-mails. | KEEP |
 | `POST /tickets/{id}/notes/{entry}/files` | W | `ticket.view` | tickets, service_orders, pdf_signer | FIELD_OPERATION | APPEND_ONLY | n/a (append-only) | REQUIRED_BY_DESIGNED_CONSUMER | Internal only; alert default false; files must be the agent's own uploads; PDF needs explanatory text. | KEEP |
-| `PUT /tickets/{id}/owner` | W | `ticket.edit` | none designed yet | WORKFLOW_OPERATION | HIGH_IMPACT_UPDATE | partial (previous owner stays in the event log) | NO_CONSUMER_YET | Moves the whole conversation and portal access to another contact: a stolen token could hand a thread to a wrong or hostile address. | NEEDS_MSOLIS_DECISION |
 | `GET /tickets/{id}/participants` | R | `ticket.view` | tickets | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view (Policy) — the SCP visibility rule; 403 otherwise. | KEEP |
 | `GET /tickets/{id}/pdf` | R | `ticket.view` | tickets, pdf_signer | FIELD_OPERATION | READ_ONLY | n/a | USEFUL_BUT_NOT_REQUIRED | Whole ticket (optionally with internal notes/events) in one file: exfiltration unit; CPU heavy. Same ACL as ticket.view + hourly budget. | KEEP |
 | `GET /tickets/{id}/recipients` | R | `ticket.view` | tickets | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view (Policy) — the SCP visibility rule; 403 otherwise. | KEEP |
@@ -142,7 +140,7 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `GET /tickets/{id}/related` | R | `ticket.view` | tickets | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view (Policy) — the SCP visibility rule; 403 otherwise. | KEEP |
 | `POST /tickets/{id}/replies` | W | `ticket.reply` | tickets | FIELD_OPERATION | HIGH_IMPACT_UPDATE | no (e-mail already sent) | REQUIRED_BY_DESIGNED_CONSUMER | External e-mail. `notify` is REQUIRED (no default), claim and signature are explicit, `cc` accepts existing contacts only, PDF needs text, hourly budget (limit_mail_per_hour). | KEEP |
 | `GET /tickets/{id}/sla` | R | `ticket.view` | tickets | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view (Policy) — the SCP visibility rule; 403 otherwise. | KEEP |
-| `POST /tickets/{id}/sla` | W | `ticket.edit` | tickets (SLA operations) | WORKFLOW_OPERATION | HIGH_IMPACT_UPDATE | partial (`clear_overdue`/`disable` drop deadlines) | REQUIRED_BY_CORE_WORKFLOW | Can hide an SLA breach (disable, clear_overdue) with ticket.edit; every operation leaves an internal SLA note plus the core events. | NEEDS_MSOLIS_DECISION |
+| `POST /tickets/{id}/sla` | W | `ticket.edit` | tickets (SLA operations) | WORKFLOW_OPERATION | HIGH_IMPACT_UPDATE | partial (`clear_overdue`/`disable` drop deadlines) | REQUIRED_BY_CORE_WORKFLOW | `disable` and `clear_overdue` could hide an SLA breach: since PC-S2 (MSOLIS 2026-09-28) they need the department manager (or an administrator) on top of ticket.edit; `restart`, `extend`, `enable` stay with ticket.edit. Every operation leaves an internal SLA note plus the core events. | KEEP |
 | `POST /tickets/{id}/status` | W | `ticket.view` | tickets | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (base value) | REQUIRED_BY_CORE_WORKFLOW | Mass close/reopen with a token; every change checks base and ticket.close/create; no e-mail by itself. | KEEP |
 | `GET /tickets/{id}/targets` | R | `ticket.view` | tickets | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view (Policy) — the SCP visibility rule; 403 otherwise. | KEEP |
 | `GET /tickets/{id}/tasks` | R | `ticket.view` | tickets | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view (Policy) — the SCP visibility rule; 403 otherwise. | KEEP |
@@ -153,7 +151,7 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `GET /users` | R | `auth` | contacts, tickets (contact lookup) | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Directory reads: `user.dir` agents browse/page; the rest get autocomplete-sized (10), unpaged, min 3 chars, hourly lookup budget. | KEEP |
 | `POST /users` | W | `global.user.create` | contacts | WORKFLOW_OPERATION | APPEND_ONLY | partial (no delete) | REQUIRED_BY_DESIGNED_CONSUMER | Creates a portal identity; 409 candidates before creating; needs user.create. | KEEP |
 | `GET /users/{id}` | R | `user.load` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only. | KEEP |
-| `PATCH /users/{id}` | W | `user.edit` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | yes (base value; old value in the event) | REQUIRED_BY_DESIGNED_CONSUMER | Changing a contact's e-mail redirects its future mail and portal login: needs user.edit + base value. | NEEDS_MSOLIS_DECISION |
+| `PATCH /users/{id}` | W | `user.edit` | contacts | WORKFLOW_OPERATION | REVERSIBLE_UPDATE | yes (base value; old value in the event) | REQUIRED_BY_DESIGNED_CONSUMER | Name, phone and custom fields only, with user.edit + base value. The e-mail address is NOT editable (PC-S3, MSOLIS 2026-09-28): typed 422 `not_editable`. | KEEP |
 | `GET /users/{id}/fields` | R | `user.load` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only. | KEEP |
 | `GET /users/{id}/notes` | R | `user.load` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only. | KEEP |
 | `POST /users/{id}/notes` | R | `user.load` | contacts | WORKFLOW_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only. | KEEP |

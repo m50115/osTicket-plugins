@@ -21,7 +21,7 @@ Para un artefacto de despliegue use `prod-sandbox/build-artifact.sh`: estampa el
 | Opción | Descripción |
 |---|---|
 | Token signing secret | Mínimo 32 caracteres aleatorios. **Obligatorio**: sin él, el login responde `503 not_configured`. Independiente de `SECRET_SALT`; rotarlo revoca todos los tokens. |
-| Token lifetime (days) | Vida del token (30 por defecto). |
+| Token lifetime (days) | Vida del token: **14 por defecto** (decisión de MSOLIS, 2026-09-28; línea base de guardarraíles). Una instancia que ya guardó otro valor (p. ej. 30) lo conserva hasta que se edite y guarde la configuración. |
 | Límites por hora y agente (`limit_mail_per_hour` 100, `limit_uploads_per_hour` 200, `limit_pdf_per_hour` 60, `limit_lookups_per_hour` 300) | Presupuestos que acotan lo que haría un token robado (correo a clientes, subidas, PDF, búsquedas de contactos sin acceso al directorio). `0` desactiva. Se guardan en la tabla del plugin; una instancia ya existente usa los valores por omisión hasta que se guarde la configuración. |
 | Default help topic / department | Valores por defecto para tickets nuevos. Vacío = el cliente debe enviarlos (422 si no). |
 | Max attachments / max file bytes | Límites del plugin; el efectivo es el más estricto entre estos y los de osTicket. |

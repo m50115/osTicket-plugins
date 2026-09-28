@@ -142,27 +142,24 @@ final class Orgs {
     }
 
     /**
-     * PATCH /organizations/{id}/profile {manager?:'s12'|'t3'|null, domain?, flags?:{collab_all_members…}, sharing?:'primary'|'everybody',
-     *                                    primary_contacts?:[user ids], base:{same keys}}
+     * PATCH /organizations/{id}/profile {manager?:'s12'|'t3'|null, domain?, primary_contacts?:[user ids], base:{same keys}}
+     * `sharing` and the collaborator/assignment flags are NOT editable through the API (PC-S4, MSOLIS 2026-09-28): they decide who
+     * sees tickets in the portal and who is copied automatically; the Contacts module must demonstrate the need first. They are
+     * still read (GET /organizations/{id}) and preserved untouched when the profile is saved.
      */
     static function profile(Request $req) {
         $o = $req->ctx['org'];
         $b = $req->json();
         if (!isset($b['base']) || !is_array($b['base'])) throw ApiError::validation("'base' is required: the current value of every key you change", 'base');
+        foreach (['sharing', 'flags'] as $k)
+            if (array_key_exists($k, $b))
+                throw ApiError::validation("'$k' cannot be changed through the API", $k, ['reason' => 'not_editable', 'editable' => ['manager', 'domain', 'primary_contacts']]);
         $current = self::profileView($o);
         $want = [];
-        foreach (['manager', 'domain', 'sharing', 'primary_contacts'] as $k)
+        foreach (['manager', 'domain', 'primary_contacts'] as $k)
             if (array_key_exists($k, $b)) $want[$k] = $b[$k];
-        if (isset($b['flags'])) {
-            if (!is_array($b['flags'])) throw ApiError::validation("'flags' must be an object", 'flags');
-            foreach ($b['flags'] as $k => $v) {
-                if (!array_key_exists($k, self::FLAGS) || !is_bool($v)) throw ApiError::validation("Unknown or non-boolean flag '$k'", "flags.$k", ['allowed' => array_keys(self::FLAGS)]);
-                $want['flags.' . $k] = $v;
-            }
-        }
         if (!$want) throw ApiError::validation('Nothing to update');
         if (isset($want['domain'])) $want['domain'] = self::domain($want['domain']);
-        if (isset($want['sharing']) && !in_array($want['sharing'], ['primary', 'everybody'], true)) throw ApiError::validation("'sharing' must be primary or everybody", 'sharing');
         if (isset($want['manager']) && !preg_match('/^[st]\d+$/', (string) $want['manager'])) throw ApiError::validation("'manager' must be s<id> or t<id>", 'manager');
         if (isset($want['primary_contacts'])) {
             if (!is_array($want['primary_contacts'])) throw ApiError::validation("'primary_contacts' must be a list of user ids", 'primary_contacts');
@@ -171,14 +168,8 @@ final class Orgs {
         }
         $apply = []; $conflicts = [];
         foreach ($want as $k => $v) {
-            if (strpos($k, 'flags.') === 0) {
-                $fk = substr($k, 6);
-                $has = isset($b['base']['flags']) && is_array($b['base']['flags']) && array_key_exists($fk, $b['base']['flags']);
-                $baseVal = $has ? $b['base']['flags'][$fk] : null;
-            } else {
-                $has = array_key_exists($k, $b['base']);
-                $baseVal = $has ? $b['base'][$k] : null;
-            }
+            $has = array_key_exists($k, $b['base']);
+            $baseVal = $has ? $b['base'][$k] : null;
             if (!$has) throw ApiError::validation("'base.$k' is required", "base.$k");
             $cur = $current[$k];
             if ($cur === $v || (is_array($cur) && $cur == $v)) continue;
