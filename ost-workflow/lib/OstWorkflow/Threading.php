@@ -333,6 +333,7 @@ final class Threading {
 
     /** @return array normalized thread entry */
     static function entry(\ThreadEntry $e) {
+        $atts = Attachments::ofEntry($e);
         $type = $e->getType();
         $b = $e->getBody();
         $html = (string) $b->toHtml();
@@ -365,7 +366,9 @@ final class Threading {
             'body'        => $html,
             'body_text'   => self::htmlToText($html),
             'body_format' => $format,
-            'attachments' => Attachments::ofEntry($e),
+            'attachments' => array_values(array_filter($atts, function ($a) { return !$a['inline']; })),
+            // Images embedded in the body: the body keeps `src="cid:<hash>"` and <hash> is the key for GET /files/{hash}.
+            'inline_images' => array_values(array_filter($atts, function ($a) { return $a['inline']; })),
             'supersedes'  => ($edited && $e->getPid()) ? (int) $e->getPid() : null,
             'reply_to_entry' => (!$edited && $e->getPid()) ? (int) $e->getPid() : null,
             'hidden'      => $e->hasFlag(\ThreadEntry::FLAG_HIDDEN),

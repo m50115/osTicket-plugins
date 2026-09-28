@@ -7,8 +7,9 @@ Handler `lib/OstWorkflow/Handlers/Tickets.php`; helper `Ticketing.php`. Common r
 **Assignee token** (`base` for assignment): `"s12"` agent, `"t3"` team, `null` unassigned/closed.
 
 ## DTOs
-`summary`: `id, number, subject, status{id,name,state}, dept, topic, priority{id,name,urgency}, sla, owner{id,name,email}, assignee{type,id,name,token}|null, source, is_overdue, is_answered, created, updated, last_activity, closed, due{manual,sla,effective}`.
-`detail` = summary + owner `phone`/`org`, `reopened`, `ip_address`, `collaborators_count`, `tasks_count`, `open_tasks_count`, `messages_count`, `is_closeable`, `source_extra` (idempotency marker `wf:<key>`), `lock{locked, staff_id, staff_name, expires_at}` (read-only; the plugin never acquires the desktop lock, P-16).
+`summary`: `id, number, subject, status{id,name,state}, dept, topic, priority{id,name,urgency}, sla, owner{id,name,email}, assignee{type,id,name,token}|null, source, is_overdue, is_answered, created, updated, last_activity, closed, due{manual,sla,effective}, activity{}`.
+`activity` (computed for the whole page in a few queries, never from `ticket.updated`): `last_activity_at` (max of the latest visible entry and the latest non-`viewed` event; `last_activity` is the same value), `last_message_at`, `last_response_at`, `max_entry_id`, `max_event_id` (the sync components) and `last_entry{id, type, kind, audience, actor{type,id,name}, excerpt (≤140 chars, plain text), has_files, created}` — enough for an inbox row without opening the thread.
+`detail` = summary + `allowed_actions[]` (names the caller may do now), `visible_to_caller`, owner `phone`/`org`, `reopened`, `ip_address`, `collaborators_count`, `tasks_count`, `open_tasks_count`, `messages_count`, `is_closeable`, `source_extra` (idempotency marker `wf:<key>`), `lock{locked, staff_id, staff_name, expires_at}` (read-only; the plugin never acquires the desktop lock, P-16).
 `due.manual` = `ticket.duedate`, `due.sla` = SLA estimate, `due.effective` = manual ?: sla (legacy B-8). All timestamps UTC ISO-8601 (`Time::iso`, calibrated against MySQL's clock).
 
 ## Reads (policy noted)
@@ -18,7 +19,10 @@ Handler `lib/OstWorkflow/Handlers/Tickets.php`; helper `Ticketing.php`. Common r
 | `GET /search?q=` / `GET /tickets/lookup?q=` (`auth`) | number prefix / subject / contact name / contact email. `q` not sanitized on input. No total is promised (`has_more` only). Lookup caps at 20. |
 | `GET /tickets/{id}` (`ticket.view`) | detail. |
 | `GET /tickets/{id}/missing-fields` | `{closeable, reason, missing_fields[]}` (`isCloseable`, `getMissingRequiredFields`). |
-| `GET /tickets/{id}/participants`, `/collaborators`, `/recipients?reply_to=all\|user\|collabs` | owner + collaborators; `recipients` = who a reply with that scope reaches (`to`/`cc`). |
+| `GET /tickets/{id}/participants` | everyone involved, each `{role, type, id, name}`: `owner`, `collaborator` (`is_active`), `assignee` (agent/team), `department`, `referral` (agent/team/dept) and `last_respondent`. |
+| `GET /tickets/{id}/collaborators`, `/recipients?reply_to=all\|user\|collabs` | collaborators; `recipients` = who a reply with that scope reaches (`to`/`cc`). |
+| `GET /tickets/{id}/actions` | what the caller can do with **this** ticket: `{reply, note, edit_fields, change_owner, manage_collaborators, mark_answered, create_task, transfer, refer, assign, claim, release, close, reopen}`, each `{allowed, reason?, permission?, requires?, message?}` (reasons: `missing_permission`, `ticket_closed`, `already_assigned`, `already_mine`, `not_assigned`, `already_closed`, `not_closed`, `not_closeable`, `not_reopenable`, `merged_child`, `email_banned`; assigning a closed ticket allowed with `requires:["reopen"]`). |
+| `GET /tickets/{id}/targets` | assignment and referral destinations for this ticket with availability: `assign{agents[],teams[]}` (`assignable`, `reason`: `unavailable`, `not_department_member`, `not_primary_member`, `already_assigned`, `no_members`) and `refer{agents[],teams[],depts[]}` (`referable`, `reason`: `unavailable`, `is_assignee`, `same_department`). `meta.caller_can_assign/refer`. |
 | `GET /tickets/{id}/fields` | dynamic form entries with displayed values. |
 | `GET /tickets/{id}/related` | merge family (`parent`, `children`, `is_merged`); merging itself is not exposed. |
 
@@ -37,6 +41,10 @@ Handler `lib/OstWorkflow/Handlers/Tickets.php`; helper `Ticketing.php`. Common r
 | `PUT /tickets/{id}/owner` (`ticket.edit`) | `user_id`, `base` (current owner id) | `Ticket::changeOwner`. |
 | `POST /tickets/{id}/answered` (`ticket.markanswered`) | `answered?` (default true) | idempotent by nature. |
 | `POST /tickets/{id}/collaborators` (`ticket.edit`) | `user_id` or `email`+`name` (`user.create`) | `Ticket::addCollaborator`; already a collaborator → `{already:true}`. |
+| `PATCH /tickets/{id}/collaborators/{user_id}` (`ticket.edit`) | `active` (bool), `base` (bool: the flag you saw) | toggles whether the contact is copied on replies; stale base → 409, already desired → no-op. |
+| `DELETE /tickets/{id}/collaborators/{user_id}` (`ticket.edit`) | — | removes the collaborator and logs a readable `collab` event; missing → `{applied:false}`. |
+
+Every applied write (status, assignment, claim, release, transfer, fields, referrals) also returns **`visible_to_caller`**: after a transfer or referral the ticket may have left the caller's queues, and the app can explain why it disappeared.
 
 Replies, notes, activity and files are in [threads-files](threads-files.md); tasks in [tasks](tasks.md).
 

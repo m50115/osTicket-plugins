@@ -27,6 +27,15 @@ Diferencias conocidas respecto a producción: sin `intl` (PHP 8.0 no compila con
 | Cursor compuesto de sincronización | una nota nueva se detecta aunque `ticket.updated` no cambie |
 | Permisos con un agente de rol limitado | `403` con el permiso que falta |
 
+## Pruebas automáticas y guardias (carpeta `prod-sandbox/`)
+| Herramienta | Qué hace |
+|---|---|
+| `e2e.py [BASE]` | Suite de regresión por HTTP (~115 comprobaciones): rutas y sobre de respuesta, tokens y revocación, catálogos con ETag, contactos y organizaciones (candidatos, base, CAS), tickets (creación con reintento, estado, asignación, traspaso, campos, colaboradores), hilo y archivos (edición de notas, adjuntos, política de caracteres), tareas, sincronización compuesta, informes, permisos con un agente limitado, recuperación tras un corte de idempotencia y bloqueo de login por usuario + IP. Crea sus propios datos. |
+| `smoke.sh [BASE]` | 16 comprobaciones rápidas. |
+| `ci-check.sh [phar]` | Guardias estáticas: sintaxis PHP 8.0, sin funciones globales, sin `exit`/`die`, `echo` solo en el emisor, sin estado en archivos, un solo manifiesto `ost:workflow`, archivo principal mínimo; con un phar, comprueba su contenido. |
+| `build-artifact.sh` | Estampa el commit en `build_sha`, construye con PHP 8.0 en una copia del repositorio y escribe `dist/ost-workflow.phar` + `.sha256` + `build.json`. Se niega a construir si falla `ci-check.sh`. |
+| `gen-openapi.php` | Genera `docs/openapi.json` desde la tabla real de rutas. |
+
 ## Pruebas manuales rápidas
 ```
 curl $BASE/ping

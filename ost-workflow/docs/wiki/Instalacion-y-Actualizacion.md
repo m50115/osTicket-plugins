@@ -11,7 +11,7 @@ php -dphar.readonly=0 make.php build ost-workflow
 
 Genera `ost-workflow.phar` en el directorio actual. `make.php` puede imprimir avisos de composer sobre dependencias de otros plugins (requieren PHP ≥ 8.1); no afectan a este phar. El nombre **debe ser fijo**: `ost-workflow.phar`. El phar no se versiona en el repositorio de plugins (`*.phar` está ignorado).
 
-Identidad del artefacto: `GET /config` devuelve `plugin_version` y `build_sha`. Antes de construir un artefacto de despliegue, sustituya `const SHA = 'dev'` en `lib/OstWorkflow/Build.php` por el commit; el número del manifiesto no es fiable (osTicket lo reescribe en cada carga).
+Para un artefacto de despliegue use `prod-sandbox/build-artifact.sh`: estampa el commit en `build_sha` (comprobado: `GET /config` lo devuelve), ejecuta las guardias `ci-check.sh` y escribe `dist/ost-workflow.phar` con su `.sha256`. La identidad del artefacto es `build_sha` (y el sha256), no el número del manifiesto, que osTicket reescribe en cada carga.
 
 ## 2. Instalar
 1. Copie el phar a `<osticket>/include/plugins/ost-workflow.phar`.

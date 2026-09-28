@@ -23,6 +23,7 @@ class OstWorkflowPlugin extends Plugin {
         // PluginManager clears the side-loaded config right after bootstrap(),
         // so capture it now (values only; no DB access happens here).
         $config = $this->getConfig();
+        Signal::connect('cron', array('OstWorkflowPlugin', 'purgeExpired'));
         Signal::connect('api', function ($dispatcher) use ($plugin, $config) {
             // Single catch-all matcher; the plugin owns its routing.
             $dispatcher->append(
@@ -31,6 +32,18 @@ class OstWorkflowPlugin extends Plugin {
                 })
             );
         });
+    }
+
+    /**
+     * Housekeeping on osTicket's own cron: purge expired plumbing rows (idempotency records after 30 days,
+     * expired revocation and login-throttle rows). Loaded only when the cron actually fires.
+     */
+    static function purgeExpired() {
+        try {
+            \OstWorkflow\Store::purge(true);
+        } catch (\Throwable $t) {
+            error_log('[ost-workflow] cron purge failed: ' . $t->getMessage());
+        }
     }
 
     function isMultiInstance() {

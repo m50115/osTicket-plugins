@@ -21,8 +21,10 @@ final class Emitter {
             http_response_code($status);
             header('X-Content-Type-Options: nosniff');
             header('X-Frame-Options: DENY');
-            header('Cache-Control: no-store');
-            header('Pragma: no-cache');
+            if (!isset($headers['Cache-Control'])) {
+                header('Cache-Control: no-store');
+                header('Pragma: no-cache');
+            }
             if (!$stream && !isset($headers['Content-Type']))
                 header('Content-Type: application/json; charset=utf-8');
             foreach ($headers as $k => $v)
@@ -33,6 +35,9 @@ final class Emitter {
             $stream->write();
             return;
         }
+
+        if ($status === 304)
+            return;   // conditional GET satisfied: headers only
 
         $json = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION);
         if ($json === false) {

@@ -8,7 +8,7 @@ Measured in the sandbox: adding an internal note does **not** change `ticket.upd
 ## `GET /sync/tickets?limit=&cursor=&state=`
 * First pass: no `state` → every visible ticket (`meta.full:true`). Next passes: `state=<meta.sync_state of the previous complete pass>`.
 * Paging inside a pass: `cursor` from `meta.cursor` while `has_more`. On the last page `meta.sync_state` is the watermark for the next pass, **captured when the pass started** (max entry id, max event id, form `updated`, UTC time), so changes made during the pass are picked up next time.
-* Items: `{id, updated, last_entry_id, last_event_id, form_updated, ticket:<summary>}`. Dedupe by `(id, updated)` on the client; the feed is deliberately a superset (overlap window).
+* Items: `{id, updated, last_entry_id, last_event_id, form_updated, ticket:<summary>}` (the summary includes the real `activity` block, see [tickets](tickets.md)). Dedupe by `(id, updated)` on the client; the feed is deliberately a superset (overlap window).
 * Deletions/visibility loss are never reported by the delta: use `GET /sync/visible-ticket-ids` (paged ascending ids of every visible ticket, all states; `next_cursor`, `server_time`) periodically and diff.
 
 ## Date-window feeds

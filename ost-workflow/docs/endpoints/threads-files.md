@@ -13,7 +13,8 @@ Common rules (envelope `{data, meta}` / `{error:{code,message,field?,details?}}`
 | `created`, `updated` | UTC. An edit keeps the original `created` (sorts in place) |
 | `actor` | `{type: staff\|user\|system, id, name}` |
 | `title`, `body` (sanitized HTML, `ThreadEntryBody::toHtml`), `body_text` (plain, entities decoded once), `body_format` (`html`\|`text` as stored) | |
-| `attachments[]` | `{file_id, hash, name, size, type, inline}` (`hash` = key for `GET /files/{hash}`) |
+| `attachments[]` | non-inline files `{file_id, hash, name, size, type, inline:false}` (`hash` = key for `GET /files/{hash}`) |
+| `inline_images[]` | images embedded in the body (same shape, `inline:true`). The stored body references them as `src="cid:<hash>"`: `<hash>` is the key of `GET /files/{hash}` (the core rewrites the original `cid` to the file key on save) |
 | `supersedes` | id of the entry this one replaces (only when `edited`); the old entry is `hidden` |
 | `reply_to_entry` | `pid` for non-edited entries (which message a reply answers) |
 | `hidden`, `edited`, `editor`, `system`, `source` | flags (`FLAG_HIDDEN`, `FLAG_EDITED`, …) |
@@ -26,7 +27,8 @@ Common rules (envelope `{data, meta}` / `{error:{code,message,field?,details?}}`
 
 ### GET `/tickets/{id}/activity`
 Composite feed of entries + events. Policy `ticket.view` (`Ticket::checkStaffPerm`, class.ticket.php:396).
-Query: `limit` (1–200, default 50, applies **per stream**), `after_entry` (default 0), `after_event` (default 0), `include_hidden` (`0`/`1`, default 0).
+Query: `limit` (1–200, default 50, applies **per stream**), `direction` (`forward` default | `backward`), `after_entry`/`after_event` (forward, default 0), `before_entry`/`before_event` (backward; absent or 0 = the latest), `include_hidden` (`0`/`1`, default 0).
+**Backward** = newest first pages (open a long ticket on its latest entries): items of a page still come ascending; `meta.next_cursor` is `{before_entry, before_event}` (the oldest id of each stream in the page) to fetch the previous page; `has_more` = older items exist.
 Two independent id cursors (entries and events have separate id spaces; **ids not dates**: an edit creates a new row with an old `created`, R-C26). Items are returned merged, ordered by `created`, entries before events on ties, then id.
 Response: `data: [entry|event…]`, `meta: {count, ticket_id, thread_id, next_cursor:{after_entry, after_event}, has_more}`. Pass `next_cursor` values back; `has_more` is true when either stream still has rows.
 Edits: the edit shows up as a **new** entry (higher id) with `supersedes:<old id>`; the old row is hidden (omitted unless `include_hidden=1`, where it appears with `hidden:true`). A client already holding the old entry hides it when it sees `supersedes`.
@@ -47,7 +49,7 @@ Body (JSON):
 | `file_ids` | optional `[int]`, ≤ `max_files_per_note` (default 5); each must have been uploaded by this agent (`POST /files`) |
 | `status_id` | optional status to apply after the reply; same permission rule as `/status` (below) |
 Extra checks the SCP controller does and the core does not: merged child ticket → 409 `conflict` `{reason:"merged_child"}`; banned contact email → 409 `conflict` `{reason:"email_banned"}`. `notify:"all"` reaches the owner + active collaborators like the SCP. Client IP recorded on the entry is the real IP (`RateLimit::ip`, trusted proxies only), not the balancer's.
-Response 201: `{entry, effects:{status_changed, status:{id,name,state,previous_id}|null, assignee_changed, assignee:{type,id,name}|null, notify, claim_requested, claimed}}`. Effects are computed from a before/after read of the ticket row (status, staff, team).
+Response 201: `{entry, effects:{sanitized:{removed_chars}, status_changed, status:{id,name,state,previous_id}|null, assignee_changed, assignee:{type,id,name}|null, notify, claim_requested, claimed}}`. Effects are computed from a before/after read of the ticket row (status, staff, team).
 Errors: 401, 403 (`ticket.reply` or ticket access), 404, 409 `conflict`, 422 (`notify`, `body`, `file_ids`, `status_id`, …), 403 `forbidden` for status rule, 409 `not_closeable`, 500 if an attachment ends up missing (never a success with fewer attachments).
 Side effects: email to recipients (unless `none`), status/assignee changes, `answered` flag, `object.created` signal, ThreadEntry rows, attachment rows. Not idempotent in the core: retry safety is the plugin's `Idempotency-Key` (same key + same body → the stored response with `Idempotent-Replayed: true`; different body → 422 `idempotency_key_reused`).
 
@@ -89,3 +91,10 @@ Thumbnails: `?s=<16..2048>` for images (GD): PNG, longest side = `s` (never upsc
 - Mail delivery is not testable in the sandbox (no MTA): `notify` effects on `recipients`/`reply_scope` are verified, actual email is not.
 - Task thread equivalents (`/tasks/{id}/notes|replies`) belong to the tasks handler; `Attachments::resolve/forCreate/attachAll` and `Threading::entry` are reusable for it.
 - Core quirks handled: `Format::safe_html` drops text after a decoded `<` (bodies are escaped so `1 < 2` survives); `Format::html2text` decodes before stripping tags (own `htmlToText`); `TextThreadEntryBody` truncates at `<` (never used); `AttachmentFile::create` dedupes file rows (per-upload name preserved on the attachment); `->created` of a just-created row is an `SqlFunction` (read back).
+
+
+## Characters the database cannot store, and typed attachment errors
+* **`unsupported_chars`** (`report` default | `reject`) on replies, notes, task notes/replies and note edits. The sandbox database is `utf8mb3`, so emoji and other characters above U+FFFF are **silently dropped by the core**. `GET /config` → `text.supplementary_characters_supported` tells which; writes report `effects.sanitized.removed_chars` (edits: `sanitized`), and `reject` answers `422 validation_failed` with `details{reason:"unsupported_characters", count}`.
+* **`file_expired` (410)**: the agent uploaded the file but the core's orphan cleanup (about a day) already removed it — upload again. A `file_id` never uploaded by this agent stays `422 validation_failed`.
+* **`attachment_missing` (409)**: the entry was created but some files did not attach; `details{entry_id, entry_created:true, missing_file_ids, retry_with}`. Never a success with fewer attachments; finish with `POST …/notes/{entry}/files`.
+* **Notes do not alert by default** (`alert:false`): a field document does not email anyone unless the app asks.

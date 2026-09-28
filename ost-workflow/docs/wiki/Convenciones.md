@@ -39,8 +39,14 @@ Cursores opacos sobre `(orden, id)`; no hay `offset`. `meta.next_cursor` y `meta
 ## Fechas
 ISO-8601 en **UTC** (`2026-09-27T23:59:57Z`). El plugin normaliza las fechas del núcleo, que se guardan en la zona horaria de la base de datos, y comprueba esa zona contra el reloj de MySQL.
 
+## Caché de catálogos
+Las lecturas de catálogos y definiciones de formularios devuelven `ETag` y `Cache-Control: private, max-age=0, must-revalidate`; con `If-None-Match` igual responden `304` sin cuerpo (caché offline barata). El resto de rutas responde `no-store`.
+
+## Texto y caracteres
+Si la base de datos es `utf8mb3`, osTicket **descarta en silencio** los emoji y caracteres por encima de U+FFFF. `GET /config` indica `text.supplementary_characters_supported`; las escrituras de texto devuelven `effects.sanitized.removed_chars` y aceptan `unsupported_chars: "reject"` para rechazarlos con 422.
+
 ## Efectos secundarios explícitos
-Las operaciones con efectos en el núcleo los piden explícitos: `notify` (`all`|`user`|`none`) en respuestas, `claim` (booleano), `alert` (booleano, por defecto `false` en asignaciones y transferencias), `reopen` para asignar un ticket cerrado. La respuesta informa los efectos (`effects`: cambio de estado y de asignado).
+Las operaciones con efectos en el núcleo los piden explícitos: `notify` (`all`|`user`|`none`) en respuestas, `claim` (booleano), `alert` (booleano, por defecto `false`: asignaciones, transferencias y notas), `reopen` para asignar un ticket cerrado. La respuesta informa los efectos (`effects`: cambio de estado y de asignado).
 
 ## Catálogo de errores (cerrado)
 | Código | HTTP | Cuándo |
@@ -54,6 +60,8 @@ Las operaciones con efectos en el núcleo los piden explícitos: `notify` (`all`
 | `idempotency_key_reused` | 422 | clave repetida con otra petición |
 | `in_progress` / `needs_review` / `conflict` / `candidates` / `locked` / `not_closeable` | 409 | ver secciones anteriores; `candidates` incluye `details.classification` y `matches[]` |
 | `unsupported_type` | 415 | tipo de archivo no permitido |
+| `file_expired` | 410 | el archivo se subió pero el núcleo lo borró antes de adjuntarlo (vuelve a subirlo) |
+| `attachment_missing` | 409 | la entrada se creó pero faltan adjuntos (`details.entry_id`, `missing_file_ids`) |
 | `too_large` / `payload_too_large` | 413 | archivo o cuerpo demasiado grande |
 | `rate_limited` | 429 | demasiados intentos de login (`Retry-After`) |
 | `not_configured` | 503 | falta el secreto de firma en la instancia |

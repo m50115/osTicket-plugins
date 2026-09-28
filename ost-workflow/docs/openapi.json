@@ -1,0 +1,4075 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "ost-workflow",
+        "version": "0.1",
+        "description": "osTicket 1.17.2 plugin ost:workflow. Conventions: docs/wiki/Convenciones.md. Bodies: docs/endpoints/*.md."
+    },
+    "servers": [
+        {
+            "url": "/api/workflow/v1"
+        }
+    ],
+    "security": [
+        {
+            "bearer": []
+        }
+    ],
+    "components": {
+        "securitySchemes": {
+            "bearer": {
+                "type": "http",
+                "scheme": "bearer"
+            }
+        },
+        "schemas": {
+            "Error": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "object",
+                        "required": [
+                            "code",
+                            "message"
+                        ],
+                        "properties": {
+                            "code": {
+                                "type": "string",
+                                "enum": [
+                                    "unauthorized",
+                                    "forbidden",
+                                    "not_found",
+                                    "method_not_allowed",
+                                    "validation_failed",
+                                    "idempotency_key_required",
+                                    "idempotency_key_reused",
+                                    "in_progress",
+                                    "needs_review",
+                                    "conflict",
+                                    "candidates",
+                                    "locked",
+                                    "not_closeable",
+                                    "unsupported_type",
+                                    "file_expired",
+                                    "attachment_missing",
+                                    "too_large",
+                                    "payload_too_large",
+                                    "rate_limited",
+                                    "not_configured",
+                                    "internal_error"
+                                ]
+                            },
+                            "message": {
+                                "type": "string"
+                            },
+                            "field": {
+                                "type": "string"
+                            },
+                            "details": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "paths": {
+        "/auth/login": {
+            "post": {
+                "operationId": "sessionLogin_post_auth_login",
+                "tags": [
+                    "Session"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/logout": {
+            "post": {
+                "operationId": "sessionLogout_post_auth_logout",
+                "tags": [
+                    "Session"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/verify": {
+            "get": {
+                "operationId": "sessionVerify_get_auth_verify",
+                "tags": [
+                    "Session"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/canned": {
+            "get": {
+                "operationId": "cannedIndex_get_canned",
+                "tags": [
+                    "Canned"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/canned/{id}/render": {
+            "get": {
+                "operationId": "cannedRender_get_canned_id_render",
+                "tags": [
+                    "Canned"
+                ],
+                "x-policy": "canned.render",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/catalog/sources": {
+            "get": {
+                "operationId": "catalogsSources_get_catalog_sources",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/config": {
+            "get": {
+                "operationId": "metaConfig_get_config",
+                "tags": [
+                    "Meta"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/departments": {
+            "get": {
+                "operationId": "catalogsDepartments_get_departments",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/departments/{id}/assignees": {
+            "get": {
+                "operationId": "catalogsAssignees_get_departments_id_assignees",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/files": {
+            "post": {
+                "operationId": "filesUpload_post_files",
+                "tags": [
+                    "Files"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/files/{hash}": {
+            "get": {
+                "operationId": "filesDownload_get_files_hash_",
+                "tags": [
+                    "Files"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "hash",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/forms/organization": {
+            "get": {
+                "operationId": "formsOrganization_get_forms_organization",
+                "tags": [
+                    "Forms"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/forms/ticket": {
+            "get": {
+                "operationId": "formsTicket_get_forms_ticket",
+                "tags": [
+                    "Forms"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/forms/user": {
+            "get": {
+                "operationId": "formsUser_get_forms_user",
+                "tags": [
+                    "Forms"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/match/contact": {
+            "get": {
+                "operationId": "matchingContact_get_match_contact",
+                "tags": [
+                    "Matching"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/match/organization": {
+            "get": {
+                "operationId": "matchingOrganization_get_match_organization",
+                "tags": [
+                    "Matching"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/match/ticket": {
+            "get": {
+                "operationId": "matchingTicket_get_match_ticket",
+                "tags": [
+                    "Matching"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/me": {
+            "get": {
+                "operationId": "meProfile_get_me",
+                "tags": [
+                    "Me"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/me/permissions": {
+            "get": {
+                "operationId": "mePermissions_get_me_permissions",
+                "tags": [
+                    "Me"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations": {
+            "get": {
+                "operationId": "orgsIndex_get_organizations",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "orgsCreate_post_organizations",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "global.org.create",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}": {
+            "get": {
+                "operationId": "orgsDetail_get_organizations_id_",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "operationId": "orgsRename_put_organizations_id_",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/extra": {
+            "patch": {
+                "operationId": "orgsExtra_patch_organizations_id_extra",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/fields": {
+            "get": {
+                "operationId": "orgsFields_get_organizations_id_fields",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/members": {
+            "get": {
+                "operationId": "orgsMembers_get_organizations_id_members",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "orgsAddMember_post_organizations_id_members",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/members/{uid}": {
+            "delete": {
+                "operationId": "orgsRemoveMember_delete_organizations_id_members_uid_",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "uid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/notes": {
+            "get": {
+                "operationId": "orgsNotes_get_organizations_id_notes",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "orgsAddNote_post_organizations_id_notes",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/profile": {
+            "patch": {
+                "operationId": "orgsProfile_patch_organizations_id_profile",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/tickets": {
+            "get": {
+                "operationId": "orgsTickets_get_organizations_id_tickets",
+                "tags": [
+                    "Orgs"
+                ],
+                "x-policy": "org.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ping": {
+            "get": {
+                "operationId": "metaPing_get_ping",
+                "tags": [
+                    "Meta"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": []
+            }
+        },
+        "/priorities": {
+            "get": {
+                "operationId": "catalogsPriorities_get_priorities",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/reports/support": {
+            "get": {
+                "operationId": "reportsSupport_get_reports_support",
+                "tags": [
+                    "Reports"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/search": {
+            "get": {
+                "operationId": "ticketsSearch_get_search",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/slas": {
+            "get": {
+                "operationId": "catalogsSlas_get_slas",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/staff": {
+            "get": {
+                "operationId": "catalogsStaff_get_staff",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/statuses": {
+            "get": {
+                "operationId": "catalogsStatuses_get_statuses",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/sync/organizations": {
+            "get": {
+                "operationId": "syncOrgs_get_sync_organizations",
+                "tags": [
+                    "Sync"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sync/tasks": {
+            "get": {
+                "operationId": "syncTasks_get_sync_tasks",
+                "tags": [
+                    "Sync"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sync/tickets": {
+            "get": {
+                "operationId": "syncTickets_get_sync_tickets",
+                "tags": [
+                    "Sync"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sync/users": {
+            "get": {
+                "operationId": "syncUsers_get_sync_users",
+                "tags": [
+                    "Sync"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sync/visible-ticket-ids": {
+            "get": {
+                "operationId": "syncVisibleIds_get_sync_visible_ticket_ids",
+                "tags": [
+                    "Sync"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks": {
+            "get": {
+                "operationId": "tasksIndex_get_tasks",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}": {
+            "get": {
+                "operationId": "tasksDetail_get_tasks_id_",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "operationId": "tasksUpdate_put_tasks_id_",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}/assignment": {
+            "post": {
+                "operationId": "tasksAssign_post_tasks_id_assignment",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.assign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}/notes": {
+            "post": {
+                "operationId": "tasksNote_post_tasks_id_notes",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}/notes/{entry}": {
+            "patch": {
+                "operationId": "tasksEditNote_patch_tasks_id_notes_entry_",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "entry",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}/replies": {
+            "post": {
+                "operationId": "tasksReply_post_tasks_id_replies",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.reply",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}/status": {
+            "post": {
+                "operationId": "tasksStatus_post_tasks_id_status",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}/thread": {
+            "get": {
+                "operationId": "tasksThread_get_tasks_id_thread",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}/transfer": {
+            "post": {
+                "operationId": "tasksTransfer_post_tasks_id_transfer",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "task.transfer",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/teams": {
+            "get": {
+                "operationId": "catalogsTeams_get_teams",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/teams/{id}/members": {
+            "get": {
+                "operationId": "catalogsTeamMembers_get_teams_id_members",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/tickets": {
+            "get": {
+                "operationId": "ticketsIndex_get_tickets",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "ticketsCreate_post_tickets",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "anydept.ticket.create",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/lookup": {
+            "get": {
+                "operationId": "ticketsLookup_get_tickets_lookup",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}": {
+            "get": {
+                "operationId": "ticketsDetail_get_tickets_id_",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/actions": {
+            "get": {
+                "operationId": "ticketsActions_get_tickets_id_actions",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/activity": {
+            "get": {
+                "operationId": "threadsActivity_get_tickets_id_activity",
+                "tags": [
+                    "Threads"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/answered": {
+            "post": {
+                "operationId": "ticketsAnswered_post_tickets_id_answered",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.markanswered",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/assignment": {
+            "post": {
+                "operationId": "ticketsAssign_post_tickets_id_assignment",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.assign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "ticketsRelease_delete_tickets_id_assignment",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.release_or_manager",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/claim": {
+            "post": {
+                "operationId": "ticketsClaim_post_tickets_id_claim",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.assign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/collaborators": {
+            "get": {
+                "operationId": "ticketsCollaborators_get_tickets_id_collaborators",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "ticketsAddCollaborator_post_tickets_id_collaborators",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/collaborators/{uid}": {
+            "patch": {
+                "operationId": "ticketsSetCollaborator_patch_tickets_id_collaborators_uid_",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "uid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "ticketsRemoveCollaborator_delete_tickets_id_collaborators_uid_",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "uid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/fields": {
+            "get": {
+                "operationId": "ticketsFields_get_tickets_id_fields",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/fields/{name}": {
+            "patch": {
+                "operationId": "ticketsEditField_patch_tickets_id_fields_name_",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/forms": {
+            "put": {
+                "operationId": "ticketsForms_put_tickets_id_forms",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/missing-fields": {
+            "get": {
+                "operationId": "ticketsMissing_get_tickets_id_missing_fields",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/notes": {
+            "post": {
+                "operationId": "threadsNote_post_tickets_id_notes",
+                "tags": [
+                    "Threads"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/notes/{entry}": {
+            "patch": {
+                "operationId": "threadsEditNote_patch_tickets_id_notes_entry_",
+                "tags": [
+                    "Threads"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "entry",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/notes/{entry}/files": {
+            "post": {
+                "operationId": "threadsNoteFiles_post_tickets_id_notes_entry_files",
+                "tags": [
+                    "Threads"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "entry",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/owner": {
+            "put": {
+                "operationId": "ticketsOwner_put_tickets_id_owner",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/participants": {
+            "get": {
+                "operationId": "ticketsParticipants_get_tickets_id_participants",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/recipients": {
+            "get": {
+                "operationId": "ticketsRecipients_get_tickets_id_recipients",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/referrals": {
+            "post": {
+                "operationId": "ticketsRefer_post_tickets_id_referrals",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.assign",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/related": {
+            "get": {
+                "operationId": "ticketsRelated_get_tickets_id_related",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/replies": {
+            "post": {
+                "operationId": "threadsReply_post_tickets_id_replies",
+                "tags": [
+                    "Threads"
+                ],
+                "x-policy": "ticket.reply",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/status": {
+            "post": {
+                "operationId": "ticketsStatus_post_tickets_id_status",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/targets": {
+            "get": {
+                "operationId": "ticketsTargets_get_tickets_id_targets",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/tasks": {
+            "get": {
+                "operationId": "tasksTicketTasks_get_tickets_id_tasks",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "tasksCreate_post_tickets_id_tasks",
+                "tags": [
+                    "Tasks"
+                ],
+                "x-policy": "ticket.task_create",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/transfer": {
+            "post": {
+                "operationId": "ticketsTransfer_post_tickets_id_transfer",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.transfer",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/topics": {
+            "get": {
+                "operationId": "catalogsTopics_get_topics",
+                "tags": [
+                    "Catalogs"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/topics/{id}/forms": {
+            "get": {
+                "operationId": "formsTopicForms_get_topics_id_forms",
+                "tags": [
+                    "Forms"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/users": {
+            "get": {
+                "operationId": "usersIndex_get_users",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "usersCreate_post_users",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "global.user.create",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}": {
+            "get": {
+                "operationId": "usersDetail_get_users_id_",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "user.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "usersUpdate_patch_users_id_",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "user.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}/fields": {
+            "get": {
+                "operationId": "usersFields_get_users_id_fields",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "user.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}/notes": {
+            "get": {
+                "operationId": "usersNotes_get_users_id_notes",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "user.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "usersAddNote_post_users_id_notes",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "user.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}/organization": {
+            "put": {
+                "operationId": "usersSetOrg_put_users_id_organization",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "user.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}/tickets": {
+            "get": {
+                "operationId": "usersTickets_get_users_id_tickets",
+                "tags": [
+                    "Users"
+                ],
+                "x-policy": "user.load",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

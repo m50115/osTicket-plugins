@@ -59,8 +59,8 @@ final class Store {
     static function esc($v) { return db_input($v); }
 
     /** Opportunistic purge (~1% of writes); retention is 30 days. */
-    static function purge() {
-        if (mt_rand(1, 100) !== 1) return;
+    static function purge($force = false) {
+        if (!$force && mt_rand(1, 100) !== 1) return;
         try {
             self::q('DELETE FROM ' . self::table() . ' WHERE expires IS NOT NULL AND expires < NOW() LIMIT 500');
         } catch (\Throwable $t) { /* housekeeping only */ }

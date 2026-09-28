@@ -24,3 +24,6 @@ lib/*
 composer.phar
 composer.lock
 composer.json
+
+# build artifacts of prod-sandbox
+prod-sandbox/dist/

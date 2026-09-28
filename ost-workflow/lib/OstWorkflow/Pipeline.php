@@ -8,6 +8,9 @@ namespace OstWorkflow;
  * Any failure becomes typed JSON; the plugin never takes down SCP/portal/cron.
  */
 final class Pipeline {
+    /** Handlers whose GET responses are ETag-revalidated. */
+    const CACHEABLE = [Handlers\Catalogs::class, Handlers\Forms::class];
+
     static function run($plugin, $config, $rest) {
         Runtime::init($plugin, $config);
         $level = ob_get_level();
@@ -51,6 +54,16 @@ final class Pipeline {
                     $status = (int) $res[0];
                     $body = $res[1];
                     $headers = $res[2] ?? [];
+                    // Catalogs and form definitions change rarely: revalidate with ETag / If-None-Match (offline cache).
+                    if ($status === 200 && $req->method === 'GET' && in_array($route['class'], self::CACHEABLE, true)) {
+                        $etag = '"' . substr(sha1(json_encode($body)), 0, 32) . '"';
+                        $headers['ETag'] = $etag;
+                        $headers['Cache-Control'] = 'private, max-age=0, must-revalidate';
+                        if (trim((string) $req->header('If-None-Match')) === $etag) {
+                            $status = 304;
+                            $body = null;
+                        }
+                    }
                 }
             }
         } catch (ApiError $e) {

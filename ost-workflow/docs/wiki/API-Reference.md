@@ -1,6 +1,6 @@
 # Referencia de la API
 
-Índice de las **95 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin. El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
+Índice de las **99 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
 
 La columna **Permiso** es el nombre de la política que el plugin aplica *antes* del handler (réplica de la matriz del panel de agentes de osTicket): `auth` = cualquier agente activo; `ticket.<x>` / `task.<x>` = permiso de rol en el departamento del objeto; `global.<x>` = permiso global del agente; `anydept.<x>` = permiso en al menos un departamento.
 
@@ -58,6 +58,10 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 | `GET` | `/workflow/v1/tickets/{id}/fields` | `ticket.view` |
 | `GET` | `/workflow/v1/tickets/{id}/related` | `ticket.view` |
 | `GET` | `/workflow/v1/tickets/{id}/collaborators` | `ticket.view` |
+| `GET` | `/workflow/v1/tickets/{id}/actions` | `ticket.view` |
+| `GET` | `/workflow/v1/tickets/{id}/targets` | `ticket.view` |
+| `PATCH` | `/workflow/v1/tickets/{id}/collaborators/{uid}` | `ticket.edit` |
+| `DELETE` | `/workflow/v1/tickets/{id}/collaborators/{uid}` | `ticket.edit` |
 | `POST` | `/workflow/v1/tickets/{id}/collaborators` | `ticket.edit` |
 | `POST` | `/workflow/v1/tickets/{id}/status` | `ticket.view` |
 | `POST` | `/workflow/v1/tickets/{id}/assignment` | `ticket.assign` |

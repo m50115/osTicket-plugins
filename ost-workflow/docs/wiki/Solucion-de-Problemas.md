@@ -11,6 +11,9 @@ Síntomas y su causa. Todos se reprodujeron en el sandbox, salvo el último, que
 | `401 unauthorized` con un token que antes servía | token revocado (`logout`), secreto rotado, agente desactivado o token caducado | iniciar sesión de nuevo |
 | `429 rate_limited` | 5 intentos fallidos de ese usuario desde esa IP | esperar `Retry-After`; configure los proxies de confianza si todas las peticiones parecen venir de la misma IP |
 | `400 idempotency_key_required` | escritura sin cabecera `Idempotency-Key` | envíe un UUID por operación |
+| `410 file_expired` al publicar una nota con archivos | el archivo se subió hace más de un día sin adjuntarse y el núcleo lo limpió | sube el archivo otra vez |
+| `409 attachment_missing` | la entrada se creó pero un adjunto no se pudo vincular | `POST /tickets/{id}/notes/{entry}/files` con los `missing_file_ids` |
+| Un emoji desaparece del mensaje | la base de datos es `utf8mb3` (osTicket lo descarta) | revisa `effects.sanitized` y `/config` → `text`; usa `unsupported_chars:"reject"` si no quieres perderlo en silencio |
 | `409 needs_review` | un intento anterior murió y no se puede probar lo que creó | verifique en el servidor (p. ej. `GET /match/ticket?marker=wf:<clave>`) |
 | `409 conflict` al actualizar | el valor cambió desde que el cliente lo leyó | mostrar `details.current` y `details.last_change` |
 | `422` "'base' is required" | actualización sin valor base | envíe `base` (o `null` si estaba vacío) |
