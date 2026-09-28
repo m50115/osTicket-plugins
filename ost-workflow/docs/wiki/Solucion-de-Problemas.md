@@ -1,0 +1,21 @@
+# Solución de problemas
+
+Síntomas y su causa. Todos se reprodujeron en el sandbox, salvo el último, que proviene del historial de incidentes del plugin `mobile`.
+
+| Síntoma | Causa | Solución |
+|---|---|---|
+| `/api/workflow/v1/...` responde **404 con HTML** del portal | nginx no envía `workflow` a `api/http.php` | añada `workflow` a la alternación ([Requisitos-de-Despliegue.md](Requisitos-de-Despliegue.md)) |
+| `400` con HTML "URL not supported" | osTicket recibió la ruta pero el plugin no registró la suya: plugin o instancia **desactivados**, o el archivo del plugin no cargó | active el plugin y la instancia; revise el registro de errores de PHP |
+| **413 con HTML** de nginx al subir un archivo | `client_max_body_size` (1 MB por defecto) | defina un límite mayor en nginx |
+| `503 not_configured` en el login | la instancia no tiene el secreto de firma (≥ 32 caracteres) | configúrelo en la instancia |
+| `401 unauthorized` con un token que antes servía | token revocado (`logout`), secreto rotado, agente desactivado o token caducado | iniciar sesión de nuevo |
+| `429 rate_limited` | 5 intentos fallidos de ese usuario desde esa IP | esperar `Retry-After`; configure los proxies de confianza si todas las peticiones parecen venir de la misma IP |
+| `400 idempotency_key_required` | escritura sin cabecera `Idempotency-Key` | envíe un UUID por operación |
+| `409 needs_review` | un intento anterior murió y no se puede probar lo que creó | verifique en el servidor (p. ej. `GET /match/ticket?marker=wf:<clave>`) |
+| `409 conflict` al actualizar | el valor cambió desde que el cliente lo leyó | mostrar `details.current` y `details.last_change` |
+| `422` "'base' is required" | actualización sin valor base | envíe `base` (o `null` si estaba vacío) |
+| Un ticket aparece dos veces en una lista | (corregido) el filtro de visibilidad duplicaba tickets con referencias | actualice al plugin actual |
+| Horas desfasadas una hora | (corregido) la zona horaria de MySQL era ambigua (p. ej. `CST`) | actualice al plugin actual: comprueba la zona contra el reloj de MySQL |
+| Error fatal "Cannot declare class" en todo el sitio | dos phars o dos filas con las mismas clases | deje un solo phar `ost-workflow.phar` y una sola fila |
+
+Para un `500`, use el `request_id` de la respuesta para localizar la línea en el registro de errores de PHP (`[ost-workflow] … request_id=…`).
