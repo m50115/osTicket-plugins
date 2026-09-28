@@ -3,6 +3,7 @@ namespace OstWorkflow\Handlers;
 
 use OstWorkflow\ApiError;
 use OstWorkflow\Contacts;
+use OstWorkflow\Directory;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Store;
@@ -25,8 +26,6 @@ final class Orgs {
             ['GET',    "$id/members",                 'members', ['policy' => 'org.load']],
             ['GET',    "$id/tickets",                 'tickets', ['policy' => 'org.load']],
             ['GET',    "$id/fields",                  'fields',  ['policy' => 'org.load']],
-            ['POST',   "$id/members",                 'addMember',    ['policy' => 'org.edit']],
-            ['DELETE', "$id/members/(?P<uid>\d+)",    'removeMember', ['policy' => 'org.edit']],
             ['PUT',    $id,                           'rename',  ['policy' => 'org.edit']],
             ['PATCH',  "$id/profile",                 'profile', ['policy' => 'org.edit']],
             ['PATCH',  "$id/extra",                   'extra',   ['policy' => 'org.edit']],
@@ -42,6 +41,7 @@ final class Orgs {
             if (!$o) throw ApiError::notFound('organization');
             if ($perm && !$req->staff->hasPerm($perm))
                 throw new ApiError('forbidden', 'Missing permission: ' . $perm);
+            Directory::requireRead($req->staff, 'organization', $o->getId());
             $req->ctx['org'] = $o;
         };
         return [
@@ -54,20 +54,23 @@ final class Orgs {
         require_once(INCLUDE_DIR . 'class.organization.php');
         $limit = $req->intQuery('limit', 25, 1, 100);
         $qs = \Organization::objects();
-        if (($q = $req->q('q')) !== null) {
+        $q = $req->q('q'); $d = $req->q('domain');
+        if ($q !== null) {
             $q = trim((string) $q);
             if (strlen($q) < 2) throw ApiError::validation("'q' must have at least 2 characters", 'q');
             if (strlen($q) > 100) throw ApiError::validation("'q' is too long (max 100)", 'q');
-            $qs = $qs->filter(\Q::any(['name__contains' => $q, 'domain__contains' => $q]));
         }
-        if (($d = $req->q('domain')) !== null) $qs = $qs->filter(['domain__contains' => strtolower(trim((string) $d))]);
+        // A domain filter is a search like q; both are what a non-directory agent may use.
+        list($limit, $paging) = Directory::searchLimits($req, $limit, $q ?? ($d !== null ? trim((string) $d) : null));
+        if ($q !== null) $qs = $qs->filter(\Q::any(['name__contains' => $q, 'domain__contains' => $q]));
+        if ($d !== null) $qs = $qs->filter(['domain__contains' => strtolower(trim((string) $d))]);
         if (($after = Contacts::cursorId($req))) $qs = $qs->filter(['id__gt' => $after]);
         $rows = [];
         foreach ($qs->order_by('id')->limit($limit + 1) as $o) $rows[] = $o;
         $more = count($rows) > $limit;
         $rows = array_slice($rows, 0, $limit);
         $items = array_map(function ($o) { return Contacts::org($o); }, $rows);
-        return Res::page($items, ($more && $rows) ? Contacts::nextCursor(end($rows)->getId()) : null);
+        return Res::page($items, ($more && $rows && $paging) ? Contacts::nextCursor(end($rows)->getId()) : null);
     }
 
     static function detail(Request $req) {
@@ -117,30 +120,6 @@ final class Orgs {
         if ($domain !== '') { $org->set('domain', $domain); $org->save(); }
         $org = \Organization::lookup((int) $org->getId());
         return Res::created(Contacts::org($org));
-    }
-
-    /** POST /organizations/{id}/members {user_id} */
-    static function addMember(Request $req) {
-        require_once(INCLUDE_DIR . 'class.user.php');
-        $o = $req->ctx['org'];
-        $uid = $req->input('user_id');
-        if (!(is_int($uid) || (is_string($uid) && ctype_digit($uid))) || !($u = \User::lookup((int) $uid)))
-            throw ApiError::validation('Unknown user', 'user_id');
-        if ((int) $u->getOrgId() === (int) $o->getId()) return Res::ok(['applied' => false, 'user' => Contacts::user($u)]);
-        if ($u->getOrgId())
-            throw new ApiError('conflict', 'The contact already belongs to another organization; use PUT /users/{id}/organization with its base', 'user_id',
-                ['current_org_id' => (int) $u->getOrgId()]);
-        $u->setOrganization($o);
-        return Res::created(Contacts::user(\User::lookup((int) $u->getId())));
-    }
-
-    static function removeMember(Request $req) {
-        require_once(INCLUDE_DIR . 'class.user.php');
-        $o = $req->ctx['org'];
-        $u = \User::lookup((int) $req->param('uid'));
-        if (!$u || (int) $u->getOrgId() !== (int) $o->getId()) return Res::ok(['applied' => false]);
-        $o->removeUser($u);
-        return Res::ok(['applied' => true, 'user' => Contacts::user(\User::lookup((int) $u->getId()))]);
     }
 
     /** PUT /organizations/{id} {name, base:{name}} */

@@ -28,6 +28,17 @@ out=$(grep -rnE '^\s*(echo|print)\b' "$SRC/lib" --include=*.php | grep -vE 'Emit
 out=$(grep -rnE 'file_put_contents|fopen\([^)]*[\x27"][wax]|__DIR__[^;]*(unlink|mkdir|touch)|tempnam|sys_get_temp_dir' "$SRC" --include=*.php | grep -vE ':\s*(//|\*)' | head)
 [ -z "$out" ] && ok "no state in files (PP-12)" || bad "file writes" "$out"
 
+# --- attack-surface guards (hardening 2026-09-28) ---------------------------------------------------------------
+out=$(grep -rnE "^\s*\['(POST|PUT|PATCH|DELETE)'" "$SRC/lib/OstWorkflow/Handlers" --include=*.php | grep -vE "'policy'|'auth' => false" | head)
+[ -z "$out" ] && ok "every write route declares its policy" || bad "write route without an explicit policy" "$out"
+
+out=$(grep -rnE '\->delete\(|DELETE FROM|->purge\(' "$SRC/lib/OstWorkflow/Handlers" --include=*.php | grep -vE ':\s*(//|\*)' | head)
+[ -z "$out" ] && ok "no hard deletes in handlers (deactivate/supersede/append, never delete)" || bad "hard delete in a handler" "$out"
+
+if command -v python3 >/dev/null; then
+  out=$(python3 "$HERE/gen-route-matrix.py" --check 2>&1) && ok "route classification covers every route in docs/openapi.json and Route-Surface.md is current" || bad "route matrix" "$out"
+fi
+
 n=$(grep -c "'id'" "$SRC/plugin.php"); id=$(grep "'id'" "$SRC/plugin.php" | sed "s/.*=> *'\(.*\)'.*/\1/")
 [ "$n" = "1" ] && [ "$id" = "ost:workflow" ] && ok "one manifest, id ost:workflow (PP-01)" || bad "manifest id is '$id' ($n entries)"
 

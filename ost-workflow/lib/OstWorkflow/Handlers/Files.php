@@ -30,6 +30,7 @@ final class Files {
         Attachments::boot();
         if (!$req->isMultipart())
             throw ApiError::validation('Send the file as multipart/form-data in the field "file"', 'file');
+        \OstWorkflow\Throttle::hit($req->staff, 'upload');   // unattached uploads pile up until the core's cron purges them
         $len = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
         if ($len > 0 && !$_POST && !$_FILES)
             // PHP dropped the body: post_max_size / upload limits exceeded, before we could see the file.

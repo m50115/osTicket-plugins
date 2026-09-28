@@ -3,9 +3,11 @@ namespace OstWorkflow\Handlers;
 
 use OstWorkflow\ApiError;
 use OstWorkflow\Contacts;
+use OstWorkflow\Directory;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Store;
+use OstWorkflow\Throttle;
 use OstWorkflow\Ticketing;
 use OstWorkflow\Threading;
 
@@ -37,6 +39,7 @@ final class Users {
             if (!$u) throw ApiError::notFound('user');
             if ($perm && !$req->staff->hasPerm($perm))
                 throw new ApiError('forbidden', 'Missing permission: ' . $perm);
+            Directory::requireRead($req->staff, 'user', $u->getId());
             $req->ctx['user'] = $u;
         };
         return [
@@ -52,6 +55,7 @@ final class Users {
         $q = $req->q('q'); $email = $req->q('email');
         if ($email !== null) {
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw ApiError::validation('Invalid email address', 'email');
+            if (!Directory::full($req->staff)) Throttle::hit($req->staff, 'lookup');
             $u = \User::lookupByEmail($email);
             return Res::ok($u ? [Contacts::user($u)] : [], ['count' => $u ? 1 : 0, 'has_more' => false]);
         }
@@ -60,10 +64,10 @@ final class Users {
             $q = trim((string) $q);
             if (strlen($q) < 2) throw ApiError::validation("'q' must have at least 2 characters", 'q');
             if (strlen($q) > 100) throw ApiError::validation("'q' is too long (max 100)", 'q');
-            $qs = $qs->filter(\Q::any(['name__contains' => $q, 'emails__address__contains' => $q]));
-        } elseif (!$req->staff->hasPerm('user.dir')) {
-            throw new ApiError('forbidden', 'Browsing the directory needs user.dir; search with q or email instead');
         }
+        list($limit, $paging) = Directory::searchLimits($req, $limit, $q);
+        if ($q !== null)
+            $qs = $qs->filter(\Q::any(['name__contains' => $q, 'emails__address__contains' => $q]));
         if ($req->q('org_id') !== null) {
             if (!ctype_digit((string) $req->q('org_id'))) throw ApiError::validation("'org_id' must be an integer", 'org_id');
             $qs = $qs->filter(['org_id' => (int) $req->q('org_id')]);
@@ -78,7 +82,7 @@ final class Users {
             $items[] = Contacts::user($u);
             $lastId = (int) $u->getId();
         }
-        return Res::page($items, $more ? Contacts::nextCursor($lastId) : null);
+        return Res::page($items, ($more && $paging) ? Contacts::nextCursor($lastId) : null);
     }
 
     static function detail(Request $req) {

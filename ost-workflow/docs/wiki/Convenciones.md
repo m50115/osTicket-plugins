@@ -69,6 +69,6 @@ Las operaciones con efectos en el núcleo los piden explícitos: `notify` (`all`
 | `file_expired` | 410 | el archivo se subió pero el núcleo lo borró antes de adjuntarlo (vuelve a subirlo) |
 | `attachment_missing` | 409 | la entrada se creó pero faltan adjuntos (`details.entry_id`, `missing_file_ids`) |
 | `too_large` / `payload_too_large` | 413 | archivo o cuerpo demasiado grande |
-| `rate_limited` | 429 | demasiados intentos de login (`Retry-After`) |
+| `rate_limited` | 429 | demasiados intentos de login, o presupuesto por hora agotado (`details.bucket`: `mail`, `upload`, `pdf`, `lookup`); `Retry-After`. Un 429 nunca se reproduce con la misma `Idempotency-Key` |
 | `not_configured` | 503 | falta el secreto de firma en la instancia |
 | `internal_error` | 500 | fallo inesperado (`details.request_id`) |

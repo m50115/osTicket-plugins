@@ -41,7 +41,6 @@ final class Tickets {
             ['GET',    "$id/pdf",                     'pdf',      ['policy' => 'ticket.view']],
             ['GET',    "$id/targets",                 'targets',  ['policy' => 'ticket.view']],
             ['PATCH',  "$id/collaborators/(?P<uid>\d+)", 'setCollaborator',    ['policy' => 'ticket.edit']],
-            ['DELETE', "$id/collaborators/(?P<uid>\d+)", 'removeCollaborator', ['policy' => 'ticket.edit']],
             ['POST',   "$id/collaborators",           'addCollaborator', ['policy' => 'ticket.edit']],
             ['POST',   "$id/status",                  'status',   ['policy' => 'ticket.view']],
             ['POST',   "$id/assignment",              'assign',   ['policy' => 'ticket.assign']],
@@ -231,6 +230,7 @@ final class Tickets {
             if ($v !== '0' && $v !== '1') throw ApiError::validation("'$k' must be 0 or 1", $k);
             $flags[$k] = $v === '1';
         }
+        \OstWorkflow\Throttle::hit($req->staff, 'pdf');   // rendering is CPU/memory heavy: bounded per agent
         require_once(INCLUDE_DIR . 'class.pdf.php');
         if (!class_exists('Ticket2PDF'))
             throw new ApiError('not_configured', 'PDF export is not available on this installation (mPDF missing)');
@@ -263,7 +263,10 @@ final class Tickets {
         return Res::ok(Ticketing::targets($t, $req->staff), ['caller_can_assign' => $can['assign']['allowed'], 'caller_can_refer' => $can['refer']['allowed']]);
     }
 
-    /** PATCH /tickets/{id}/collaborators/{uid} {active: bool, base: bool} — toggle the copy flag. */
+    /**
+     * PATCH /tickets/{id}/collaborators/{uid} {active: bool, base: bool} — toggle the copy flag.
+     * There is no DELETE: deactivating is reversible and keeps the trace (hardening 2026-09-28).
+     */
     static function setCollaborator(Request $req) {
         $t = $req->ctx['ticket'];
         $b = $req->json();
@@ -279,19 +282,6 @@ final class Tickets {
         $c->setFlag(\Collaborator::FLAG_ACTIVE, $b['active']);
         $c->save();
         return Res::ok(['applied' => true, 'user_id' => (int) $c->getUserId(), 'is_active' => (bool) $b['active']]);
-    }
-
-    /** DELETE /tickets/{id}/collaborators/{uid} — remove the collaborator (idempotent). */
-    static function removeCollaborator(Request $req) {
-        $t = $req->ctx['ticket'];
-        $c = $t->getCollaborators()->findFirst(['user_id' => $req->intParam('uid')]);
-        if (!$c) return Res::ok(['applied' => false, 'user_id' => $req->intParam('uid')]);
-        $label = (string) $c;
-        $uid = (int) $c->getUserId();
-        if (!$c->delete()) throw new ApiError('internal_error', 'The collaborator could not be removed');
-        // Event payload keyed by user id with a name (the shape ThreadEvent's describer reads without errors).
-        $t->logEvent('collab', ['del' => [$uid => ['name' => $label]]]);
-        return Res::ok(['applied' => true, 'user_id' => $req->intParam('uid')]);
     }
 
     /**
@@ -424,6 +414,7 @@ final class Tickets {
             if (!$role || !$role->hasPerm('ticket.create'))
                 throw new ApiError('forbidden', 'You do not have permission to create tickets in this department');
             $vars['deptId'] = $deptId;
+            $deptRole = $role;
         }
 
         // Contact: existing user, or email + name (User::fromVars needs user.create — enforced by the core).
@@ -444,17 +435,29 @@ final class Tickets {
             $a = $b['assignee'];
             if (!is_array($a) || !isset($a['type'], $a['id']) || !in_array($a['type'], ['staff', 'team'], true) || !ctype_digit((string) $a['id']))
                 throw ApiError::validation("'assignee' must be {type: staff|team, id}", 'assignee');
-            $ok = $staff->hasPerm('ticket.assign', false);
+            // With an explicit department the permission must hold THERE, not merely in some department.
+            $ok = isset($deptRole) ? $deptRole->hasPerm('ticket.assign') : $staff->hasPerm('ticket.assign', false);
             if (!$ok) throw new ApiError('forbidden', 'Missing permission: ticket.assign');
             $vars[$a['type'] === 'staff' ? 'staffId' : 'teamId'] = (int) $a['id'];
         }
-        // Dynamic form fields by name (topic forms); reserved keys cannot be overridden.
-        if (isset($b['fields']) && is_array($b['fields'])) {
-            foreach ($b['fields'] as $k => $v)
-                if (is_string($k) && !array_key_exists($k, $vars) && is_scalar($v))
-                    $vars[$k] = $v;
+        // Dynamic form fields by name. Ticket::create reads dept, assignee, status, SLA, due date and the
+        // autoresponse/alert switches from the same array: only fields the topic's forms define are accepted,
+        // never a core key (that would bypass the permission checks above).
+        if (isset($b['fields'])) {
+            if (!is_array($b['fields']) || ($b['fields'] && array_values($b['fields']) === $b['fields']))
+                throw ApiError::validation("'fields' must be an object {field: value}", 'fields');
+            $allowed = self::creationFields($topic, $vars);
+            foreach ($b['fields'] as $k => $v) {
+                if (!isset($allowed[$k]))
+                    throw ApiError::validation("Unknown field '$k' for this help topic (see GET /topics/{id}/forms)", 'fields.' . $k,
+                        ['allowed' => array_keys($allowed)]);
+                if (!is_scalar($v))
+                    throw ApiError::validation("Field '$k' must be a scalar value", 'fields.' . $k);
+                $vars[$k] = $v;
+            }
         }
 
+        if ($notify) \OstWorkflow\Throttle::hit($staff, 'mail');
         $errors = [];
         $ticket = \Ticket::create($vars, $errors, 'staff', $notify, $notify);
         if (!$ticket)
@@ -464,6 +467,24 @@ final class Tickets {
         Store::q('UPDATE ' . TICKET_TABLE . ' SET source_extra=' . Store::esc(Idempotency::marker($req->idemKey))
             . ' WHERE ticket_id=' . (int) $ticket->getId());
         return Res::created(Ticketing::detail(\Ticket::lookup((int) $ticket->getId()), $staff));
+    }
+
+    /** Keys Ticket::create() reads from its variables besides form fields: never settable through `fields`. */
+    const CORE_KEYS = ['topicid', 'deptid', 'staffid', 'teamid', 'statusid', 'slaid', 'duedate', 'priorityid', 'priority',
+        'autorespond', 'alertstaff', 'alertuser', 'uid', 'user_id', 'email', 'name', 'subject', 'message', 'source', 'source_extra',
+        'sourceextra', 'emailid', 'ip', 'ip_address', 'attachments', 'files', 'cannedattachments', 'response', 'reply-to', 'ccs',
+        'flags', 'pid', 'parent_id', 'assign', 'number', 'notify'];
+
+    /** Names of the custom fields of the topic's forms that a creation may fill (name => true). */
+    private static function creationFields(\Topic $topic, array $vars) {
+        $core = array_merge(self::CORE_KEYS, array_map('strtolower', array_keys($vars)));
+        $ok = [];
+        foreach ($topic->getForms() as $form)
+            foreach ($form->getFields() as $f) {
+                $n = (string) $f->get('name');
+                if ($n !== '' && !in_array(strtolower($n), $core, true)) $ok[$n] = true;
+            }
+        return $ok;
     }
 
     /** POST /tickets/{id}/collaborators {user_id | email+name, cc?} */

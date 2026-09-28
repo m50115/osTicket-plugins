@@ -25,7 +25,7 @@ foreach (\OstWorkflow\Router::table() as $r) {
         'operationId' => lcfirst($tag) . ucfirst($r['action']) . '_' . strtolower($r['method']) . '_' . preg_replace('/\W+/', '_', trim($path, '/')),
         'tags' => [$tag],
         'x-policy' => $r['policy'] ?: 'auth',
-        'parameters' => array_map(function ($n) { return ['name' => $n, 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]; }, $m[1]),
+        'parameters' => array_map(function ($n) { return ['name' => $n, 'in' => 'path', 'required' => true, 'schema' => ['type' => in_array($n, ['uuid', 'hash', 'name'], true) ? 'string' : 'integer']]; }, $m[1]),
         'responses' => ['200' => ['description' => 'Success: {"data": …, "meta": …}'], 'default' => $err],
     ];
     if (!$r['auth']) $op['security'] = [];

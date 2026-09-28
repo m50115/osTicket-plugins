@@ -1,6 +1,6 @@
 # Referencia de la API
 
-Índice de las **107 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
+Índice de las **103 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
 
 La columna **Permiso** es el nombre de la política que el plugin aplica *antes* del handler (réplica de la matriz del panel de agentes de osTicket): `auth` = cualquier agente activo; `ticket.<x>` / `task.<x>` = permiso de rol en el departamento del objeto; `global.<x>` = permiso global del agente; `anydept.<x>` = permiso en al menos un departamento.
 
@@ -17,7 +17,6 @@ Detalle: [me-queues-documents.md](../endpoints/me-queues-documents.md) y [Conven
 | `POST` | `/workflow/v1/auth/logout` | `auth` |
 | `GET` | `/workflow/v1/me` | `auth` |
 | `GET` | `/workflow/v1/me/permissions` | `auth` |
-| `PATCH` | `/workflow/v1/me` | `auth` |
 
 ## Catálogos, formularios y respuestas predefinidas
 
@@ -65,7 +64,6 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 | `GET` | `/workflow/v1/tickets/{id}/pdf` | `ticket.view` |
 | `GET` | `/workflow/v1/tickets/{id}/targets` | `ticket.view` |
 | `PATCH` | `/workflow/v1/tickets/{id}/collaborators/{uid}` | `ticket.edit` |
-| `DELETE` | `/workflow/v1/tickets/{id}/collaborators/{uid}` | `ticket.edit` |
 | `POST` | `/workflow/v1/tickets/{id}/collaborators` | `ticket.edit` |
 | `POST` | `/workflow/v1/tickets/{id}/status` | `ticket.view` |
 | `POST` | `/workflow/v1/tickets/{id}/assignment` | `ticket.assign` |
@@ -117,8 +115,6 @@ Detalle: [contacts-orgs-matching.md](../endpoints/contacts-orgs-matching.md)
 | `GET` | `/workflow/v1/organizations/{id}/members` | `org.load` |
 | `GET` | `/workflow/v1/organizations/{id}/tickets` | `org.load` |
 | `GET` | `/workflow/v1/organizations/{id}/fields` | `org.load` |
-| `POST` | `/workflow/v1/organizations/{id}/members` | `org.edit` |
-| `DELETE` | `/workflow/v1/organizations/{id}/members/{uid}` | `org.edit` |
 | `PUT` | `/workflow/v1/organizations/{id}` | `org.edit` |
 | `PATCH` | `/workflow/v1/organizations/{id}/profile` | `org.edit` |
 | `PATCH` | `/workflow/v1/organizations/{id}/extra` | `org.edit` |
@@ -155,8 +151,8 @@ Detalle: [sync-reports.md](../endpoints/sync-reports.md)
 |---|---|---|
 | `GET` | `/workflow/v1/sync/tickets` | `auth` |
 | `GET` | `/workflow/v1/sync/visible-ticket-ids` | `auth` |
-| `GET` | `/workflow/v1/sync/users` | `auth` |
-| `GET` | `/workflow/v1/sync/organizations` | `auth` |
+| `GET` | `/workflow/v1/sync/users` | `auth` + `user.dir` |
+| `GET` | `/workflow/v1/sync/organizations` | `auth` + `user.dir` |
 | `GET` | `/workflow/v1/sync/tasks` | `auth` |
 | `GET` | `/workflow/v1/reports/support` | `auth` |
 

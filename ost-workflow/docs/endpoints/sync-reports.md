@@ -12,7 +12,7 @@ Measured in the sandbox: adding an internal note does **not** change `ticket.upd
 * Deletions/visibility loss are never reported by the delta: use `GET /sync/visible-ticket-ids` (paged ascending ids of every visible ticket, all states; `next_cursor`, `server_time`) periodically and diff.
 
 ## Date-window feeds
-`GET /sync/users?since=`, `GET /sync/organizations?since=` — rows with `updated >= since − 5 s`, ordered by `(updated, id)`; no `since` = full. Pages via `meta.cursor`; on the last page `meta.next_since` (UTC, taken at pass start) is the next `since`. `user.updated` is a local `datetime` and `organization.updated` a `timestamp`: both are normalized to UTC before they leave.
+`GET /sync/users?since=`, `GET /sync/organizations?since=` (**need `user.dir`**: they are a bulk copy of the directory; 403 otherwise) — rows with `updated >= since − 5 s`, ordered by `(updated, id)`; no `since` = full. Pages via `meta.cursor`; on the last page `meta.next_since` (UTC, taken at pass start) is the next `since`. `user.updated` is a local `datetime` and `organization.updated` a `timestamp`: both are normalized to UTC before they leave.
 `GET /sync/tasks?since=&event_since=` — tasks updated/closed in the window **or** with thread events past `event_since`; `meta.sync_state` carries `{u, v}`.
 
 ## `GET /reports/support`

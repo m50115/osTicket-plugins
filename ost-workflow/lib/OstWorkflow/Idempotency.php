@@ -67,9 +67,11 @@ final class Idempotency {
 
         // Lease expired: the earlier attempt died mid-flight. Adopt if we can prove what it created.
         $type = $row['resource_type']; $id = $row['resource_id'];
-        if (!$type && $req->method === 'POST' && preg_match('#^/tickets$#', $req->route['path'])) {
+        // A ticket created for a new contact records the contact first: the marker is the proof for the ticket.
+        if ((!$type || $type === 'user') && $req->method === 'POST' && preg_match('#^/tickets$#', $req->route['path'])) {
             $tid = Store::row('SELECT ticket_id FROM ' . TICKET_TABLE . ' WHERE source_extra=' . Store::esc(self::marker($key)));
             if ($tid) { $type = 'ticket'; $id = $tid['ticket_id']; }
+            else $type = $id = null;   // only the contact exists: the ticket is unproven, never adopt the contact as the answer
         }
         if ($type && $id) {
             $body = ['data' => ['adopted' => true, 'resource_type' => $type, 'resource_id' => (string) $id]];
@@ -82,7 +84,8 @@ final class Idempotency {
 
     static function finish($status, $body) {
         if (!self::$rowId) return;
-        $final = $status < 500;
+        // 5xx and 429 are not answers to replay: the key must stay usable once the fault or the window passes.
+        $final = $status < 500 && $status !== 429;
         if ($final) {
             Store::q('UPDATE ' . Store::table() . ' SET status=' . ($status < 400 ? '\'done\'' : '\'failed_final\'')
                 . ', http_code=' . (int) $status . ', response=' . Store::esc(json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE))
@@ -122,7 +125,12 @@ final class Idempotency {
 
     /** Files uploaded by this agent (ownership proof for POST /notes file_ids). */
     static function ownsFile($staffId, $fileId) {
+        return self::owns($staffId, 'file', $fileId);
+    }
+
+    /** Did this agent create the resource (file, user, organization, ticket, ...)? Proven by the idempotency ledger (30 days). */
+    static function owns($staffId, $type, $id) {
         return (bool) Store::row('SELECT id FROM ' . Store::table() . ' WHERE staff_id=' . (int) $staffId
-            . ' AND resource_type=\'file\' AND resource_id=' . Store::esc((string) $fileId) . ' LIMIT 1');
+            . ' AND resource_type=' . Store::esc($type) . ' AND resource_id=' . Store::esc((string) $id) . ' LIMIT 1');
     }
 }

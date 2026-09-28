@@ -29,7 +29,7 @@ Handlers: `lib/OstWorkflow/Handlers/{Catalogs,Forms,Canned}.php`. None of these 
           "manager_id":null,"sla_id":null,"members_only_assign":false}],
  "meta":{"count":1,"filters":{"include_disabled":false}}}
 // GET /departments/1/assignees, GET /staff, GET /teams/{id}/members  (agent object)
-{"id":2,"username":"agent2","name":"Agent Two","first_name":"Agent","last_name":"Two",
+{"id":2,"name":"Agent Two","first_name":"Agent","last_name":"Two",
  "email":"agent2@example.com","dept_id":1,"is_active":true,"on_vacation":false}
 // GET /topics
 {"id":10,"name":"Report a Problem","full_name":"Report a Problem","parent_id":null,"dept_id":3,

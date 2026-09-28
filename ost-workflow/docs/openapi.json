@@ -361,7 +361,7 @@
                         "in": "path",
                         "required": true,
                         "schema": {
-                            "type": "integer"
+                            "type": "string"
                         }
                     }
                 ],
@@ -444,7 +444,7 @@
                         "in": "path",
                         "required": true,
                         "schema": {
-                            "type": "integer"
+                            "type": "string"
                         }
                     }
                 ],
@@ -643,53 +643,6 @@
                                 "schema": {
                                     "$ref": "#/components/schemas/Error"
                                 }
-                            }
-                        }
-                    }
-                }
-            },
-            "patch": {
-                "operationId": "meUpdate_patch_me",
-                "tags": [
-                    "Me"
-                ],
-                "x-policy": "auth",
-                "parameters": [
-                    {
-                        "name": "Idempotency-Key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "pattern": "^[A-Za-z0-9-]{8,64}$"
-                        },
-                        "description": "One per operation; a retry with the same key never repeats the effect."
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success: {\"data\": …, \"meta\": …}"
-                    },
-                    "default": {
-                        "description": "Typed error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Error"
-                                }
-                            }
-                        }
-                    },
-                    "201": {
-                        "description": "Created"
-                    }
-                },
-                "requestBody": {
-                    "required": false,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object"
                             }
                         }
                     }
@@ -1001,126 +954,6 @@
                                 "schema": {
                                     "$ref": "#/components/schemas/Error"
                                 }
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "operationId": "orgsAddMember_post_organizations_id_members",
-                "tags": [
-                    "Orgs"
-                ],
-                "x-policy": "org.edit",
-                "parameters": [
-                    {
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "Idempotency-Key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "pattern": "^[A-Za-z0-9-]{8,64}$"
-                        },
-                        "description": "One per operation; a retry with the same key never repeats the effect."
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success: {\"data\": …, \"meta\": …}"
-                    },
-                    "default": {
-                        "description": "Typed error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Error"
-                                }
-                            }
-                        }
-                    },
-                    "201": {
-                        "description": "Created"
-                    }
-                },
-                "requestBody": {
-                    "required": false,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/organizations/{id}/members/{uid}": {
-            "delete": {
-                "operationId": "orgsRemoveMember_delete_organizations_id_members_uid_",
-                "tags": [
-                    "Orgs"
-                ],
-                "x-policy": "org.edit",
-                "parameters": [
-                    {
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "uid",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "Idempotency-Key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "pattern": "^[A-Za-z0-9-]{8,64}$"
-                        },
-                        "description": "One per operation; a retry with the same key never repeats the effect."
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success: {\"data\": …, \"meta\": …}"
-                    },
-                    "default": {
-                        "description": "Typed error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Error"
-                                }
-                            }
-                        }
-                    },
-                    "201": {
-                        "description": "Created"
-                    }
-                },
-                "requestBody": {
-                    "required": false,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object"
                             }
                         }
                     }
@@ -2819,69 +2652,6 @@
                         }
                     }
                 }
-            },
-            "delete": {
-                "operationId": "ticketsRemoveCollaborator_delete_tickets_id_collaborators_uid_",
-                "tags": [
-                    "Tickets"
-                ],
-                "x-policy": "ticket.edit",
-                "parameters": [
-                    {
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "uid",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "Idempotency-Key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "pattern": "^[A-Za-z0-9-]{8,64}$"
-                        },
-                        "description": "One per operation; a retry with the same key never repeats the effect."
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success: {\"data\": …, \"meta\": …}"
-                    },
-                    "default": {
-                        "description": "Typed error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Error"
-                                }
-                            }
-                        }
-                    },
-                    "201": {
-                        "description": "Created"
-                    }
-                },
-                "requestBody": {
-                    "required": false,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object"
-                            }
-                        }
-                    }
-                }
             }
         },
         "/tickets/{id}/documents": {
@@ -2973,7 +2743,7 @@
                         "in": "path",
                         "required": true,
                         "schema": {
-                            "type": "integer"
+                            "type": "string"
                         }
                     },
                     {

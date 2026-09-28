@@ -116,7 +116,6 @@ final class Catalogs {
     private static function agent($a) {
         return [
             'id'         => (int) $a->getId(),
-            'username'   => $a->getUserName(),
             'name'       => (string) $a->getName(),
             'first_name' => $a->getFirstName(),
             'last_name'  => $a->getLastName(),

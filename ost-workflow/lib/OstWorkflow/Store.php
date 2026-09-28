@@ -11,6 +11,7 @@ namespace OstWorkflow;
  *        'revoked'   revoked token, idem_key = jti, expires = token exp
  *        'tokgen'    per-agent token generation, counter = generation
  *        'ratelimit' idem_key = 'rl:<hash>', counter = failures, lease_until = lockout end
+ *        'throttle'  idem_key = 'th:<bucket>:<UTC hour>', staff_id = agent, counter = operations this hour (Throttle)
  */
 final class Store {
     static function table() { return TABLE_PREFIX . 'workflow_idempotency'; }

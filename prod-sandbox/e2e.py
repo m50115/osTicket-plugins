@@ -278,7 +278,6 @@ r = call("PATCH", "/tickets/%d/collaborators/1" % TID, {"active": False, "base":
 check("deactivate collaborator", r.status == 200 and r.data["applied"])
 r = call("PATCH", "/tickets/%d/collaborators/1" % TID, {"active": True, "base": True}, token=TOK)
 check("collaborator stale base -> 409", r.status == 409)
-check("remove collaborator", call("DELETE", "/tickets/%d/collaborators/1" % TID, token=TOK).data["applied"])
 
 # ------------------------------------------------------------------ threads / files
 print("\n[threads and files]")
@@ -408,17 +407,6 @@ check("Range: unsatisfiable -> 416", get_range("bytes=9000-9999")[0] == 416)
 a_ = get_range("bytes=0-2499")[1] + get_range("bytes=2500-")[1]
 check("Range: reassembled bytes equal the original", a_ == data)
 
-pr = call("GET", "/me", token=TOK)
-check("PATCH /me needs base", call("PATCH", "/me", {"mobile": "555-0100"}, token=TOK).status == 422)
-old_mobile = pr.data.get("mobile") or ""
-new_mobile = "555-%04d" % (int(U[:4], 16) % 10000)
-r = call("PATCH", "/me", {"mobile": new_mobile, "base": {"mobile": old_mobile}}, token=TOK)
-check("PATCH /me applies with base", r.status == 200 and r.data["applied"] and r.data["changed"] == ["mobile"], r.raw[:120])
-check("PATCH /me same value is a no-op", call("PATCH", "/me", {"mobile": new_mobile, "base": {"mobile": "x"}}, token=TOK).data["applied"] is False)
-check("PATCH /me stale base -> 409", call("PATCH", "/me", {"mobile": "555-9999", "base": {"mobile": "old"}}, token=TOK).status == 409)
-check("PATCH /me refuses e-mail / role", call("PATCH", "/me", {"email": "x@y.z", "base": {}}, token=TOK).status == 422)
-call("PATCH", "/me", {"mobile": old_mobile, "base": {"mobile": new_mobile}}, token=TOK)
-
 DU = str(uuid.uuid4())
 dn = {"body": "Service document %s, first version" % U, "document": {"uuid": DU, "version": 1}}
 r = call("POST", "/tickets/%d/notes" % TID, dn, token=TOK)
@@ -506,6 +494,166 @@ if TOK2:
     check("agent2: cannot rename an organization", call("PUT", "/organizations/%d" % OID, {"name": "x", "base": {"name": "y"}}, token=TOK2).status == 403)
 else:
     skip("permission checks", "no AGENT2_USER/AGENT2_PASS")
+
+# ------------------------------------------------------------------ hardening (2026-09-28)
+print("\n[hardening: frozen surface, removed routes, mass assignment, directory, cross-department, budgets]")
+FROZEN_ROUTES = 103
+oa = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ost-workflow", "docs", "openapi.json")))
+ops = [(m.upper(), p) for p, v in oa["paths"].items() for m in v if m in ("get", "post", "put", "patch", "delete")]
+check("frozen surface: %d routes in the OpenAPI generated from the route table" % FROZEN_ROUTES, len(ops) == FROZEN_ROUTES, "found %d" % len(ops))
+public = {("GET", "/ping"), ("POST", "/auth/login")}
+noauth = []
+for m, p in ops:
+    if (m, p) in public:
+        continue
+    path = re.sub(r"\{[^}]+\}", lambda x: "0123456789abcdef0123456789abcdef0123" if "uuid" in x.group(0) else ("f" * 32 if "hash" in x.group(0) else "1"), p)
+    st = call(m, path, {} if m in ("POST", "PUT", "PATCH") else None, key="auto").status
+    if st != 401:
+        noauth.append((m, p, st))
+check("every route except ping/login answers 401 without a token", not noauth, str(noauth[:5]))
+
+# removed from the public surface: they must stay gone (405 = the path exists with other verbs, 404 = it does not)
+check("DELETE collaborator is not routable (PATCH active:false is the reversible way)", call("DELETE", "/tickets/%d/collaborators/1" % TID, token=TOK).status in (404, 405))
+check("POST organization member is not routable (PUT /users/{id}/organization covers it)", call("POST", "/organizations/%d/members" % OID, {"user_id": UID}, token=TOK).status in (404, 405))
+check("DELETE organization member is not routable", call("DELETE", "/organizations/%d/members/%d" % (OID, UID), token=TOK).status in (404, 405))
+check("PATCH /me is not routable (the signature reaches customers by e-mail)", call("PATCH", "/me", {"signature": "x", "base": {"signature": ""}}, token=TOK).status in (404, 405))
+
+# mass assignment: Ticket::create reads dept, assignee, status, autoresponse... from the same array as the form fields
+for who, tk in (("admin", TOK), ("agent2", TOK2)):
+    if not tk:
+        continue
+    for k, v in (("deptId", 2), ("staffId", 1), ("autorespond", 1), ("statusId", 3), ("slaId", 1), ("duedate", "2030-01-01 00:00:00")):
+        r = call("POST", "/tickets", {"subject": "mass %s" % U, "message": "x", "topic_id": 1, "user_id": UID, "dept_id": 1, "fields": {k: v}}, token=tk)
+        check("%s: core key '%s' inside `fields` -> 422" % (who, k), r.status == 422 and r.err == "validation_failed", "%s %s" % (r.status, r.raw[:100]))
+check("`fields` must be an object", call("POST", "/tickets", {"subject": "m", "message": "x", "topic_id": 1, "user_id": UID, "fields": [1, 2]}, token=TOK).status == 422)
+check("nothing was created by those attempts", not call("GET", "/search?q=mass%%20%s" % U, token=TOK).data)
+
+st = call("GET", "/staff", token=TOK)
+check("staff catalog does not publish login names (usernames)", st.status == 200 and st.data and all("username" not in a for a in st.data))
+# the PDF-needs-text rule is the same on every path that can attach a file (tickets are covered above)
+if minc:
+    tk = call("POST", "/tickets/%d/tasks" % TID, {"title": "PDF rule " + U, "description": "x"}, token=TOK).data["id"]
+    r = call("POST", "/tasks/%d/notes" % tk, {"body": "ver", "file_ids": [upload_pdf().data["file_id"]]}, token=TOK)
+    check("task note: a PDF with too little text is refused", r.status == 422 and r.details.get("reason") == "attachment_needs_text", r.raw[:100])
+    r = call("POST", "/tasks/%d/replies" % tk, {"body": "ver", "file_ids": [upload_pdf().data["file_id"]]}, token=TOK)
+    check("task reply: a PDF with too little text is refused", r.status in (422, 403) and (r.status == 403 or r.details.get("reason") == "attachment_needs_text"), r.raw[:100])
+    r = call("POST", "/tasks/%d/notes" % tk, {"body": "Signed report attached; please review it and reply.", "file_ids": [upload_pdf().data["file_id"]]}, token=TOK)
+    check("task note: a PDF with explanatory text is accepted", r.status == 201, r.raw[:100])
+    dv = str(uuid.uuid4())
+    r = call("POST", "/tickets/%d/notes" % TID, {"body": "ok", "file_ids": [upload_pdf().data["file_id"]], "document": {"uuid": dv, "version": 1}}, token=TOK)
+    check("versioned document note: the PDF rule applies too", r.status == 422 and r.details.get("reason") == "attachment_needs_text", r.raw[:100])
+
+# e-mail defaults: nothing leaves the building unless the request says so (Mailpit is the sandbox SMTP sink)
+def mail_count():
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8025/api/v1/messages", timeout=5) as x:
+            return json.load(x)["total"]
+    except Exception:
+        return None
+m0 = mail_count()
+if m0 is None:
+    skip("e-mail defaults", "Mailpit is not reachable on 127.0.0.1:8025")
+else:
+    et = call("POST", "/tickets", {"subject": "mail defaults %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK).data["id"]
+    call("POST", "/tickets/%d/notes" % et, {"body": "internal, no alert"}, token=TOK)
+    call("POST", "/tickets/%d/assignment" % et, {"assignee": {"type": "staff", "id": 2}, "base": None}, token=TOK)
+    call("POST", "/tickets/%d/transfer" % et, {"dept_id": 2, "base": 1}, token=TOK)
+    call("POST", "/tickets/%d/referrals" % et, {"target": "agent", "id": 2}, token=TOK)
+    call("POST", "/tickets/%d/replies" % et, {"body": "public but notify none", "notify": "none"}, token=TOK)
+    tk = call("POST", "/tickets/%d/tasks" % et, {"title": "mail defaults task", "description": "x"}, token=TOK).data["id"]
+    call("POST", "/tasks/%d/notes" % tk, {"body": "task note"}, token=TOK)
+    call("POST", "/tasks/%d/assignment" % tk, {"assignee": {"type": "staff", "id": 2}, "base": None}, token=TOK)
+    time.sleep(2)
+    check("no e-mail from create, note, assignment, transfer, referral, notify-none reply, task, task note, task assignment", mail_count() == m0, "%s -> %s" % (m0, mail_count()))
+    et2 = call("POST", "/tickets", {"subject": "mail control %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK).data["id"]
+    call("POST", "/tickets/%d/assignment" % et2, {"assignee": {"type": "staff", "id": 2}, "base": None, "alert": True}, token=TOK)
+    time.sleep(2)
+    check("positive control: alert:true does send", (mail_count() or 0) > m0)
+
+if TOK2:
+    # directory: a normal agent finds contacts while opening tickets, it cannot dump them
+    NU = call("POST", "/users", {"name": "Hardening " + U, "email": "hard-%s@example.com" % U, "org_id": None}, token=TOK).data["id"]
+    OID2 = call("POST", "/organizations", {"name": "Hardening Org " + U}, token=TOK).data["id"]
+    check("agent2: a contact on no visible ticket -> 403", call("GET", "/users/%d" % NU, token=TOK2).status == 403)
+    check("agent2: ... nor its tickets, fields, notes", all(call("GET", "/users/%d/%s" % (NU, p), token=TOK2).status == 403 for p in ("tickets", "fields", "notes")))
+    check("agent2: ... nor a note on it", call("POST", "/users/%d/notes" % NU, {"body": "x"}, token=TOK2).status == 403)
+    check("agent2: an organization on no visible ticket -> 403", call("GET", "/organizations/%d" % OID2, token=TOK2).status == 403)
+    check("agent2: browsing users or organizations without a query -> 403", call("GET", "/users", token=TOK2).status == 403 and call("GET", "/organizations", token=TOK2).status == 403)
+    check("agent2: a 2-letter search -> 422", call("GET", "/users?q=ab", token=TOK2).status == 422)
+    r = call("GET", "/users?q=e2e&limit=100", token=TOK2)
+    check("agent2: search answers are autocomplete-sized and unpaged", r.status == 200 and len(r.data) <= 10 and not r.meta.get("next_cursor"), r.raw[:100])
+    check("agent2: paging the directory -> 422", call("GET", "/users?q=e2e&cursor=eyJpIjoxfQ", token=TOK2).status == 422)
+    check("agent2: /sync/users and /sync/organizations -> 403", call("GET", "/sync/users", token=TOK2).status == 403 and call("GET", "/sync/organizations", token=TOK2).status == 403)
+    check("admin (user.dir): both feeds still work", call("GET", "/sync/users?limit=1", token=TOK).status == 200 and call("GET", "/sync/organizations?limit=1", token=TOK).status == 200)
+    check("agent2: match by organization id answers 'none' for a foreign one", call("GET", "/match/organization?id=%d" % OID2, token=TOK2).data["classification"] == "none")
+    check("admin: the same id is 'safe'", call("GET", "/match/organization?id=%d" % OID2, token=TOK).data["classification"] == "safe")
+    r = call("POST", "/tickets", {"subject": "visible %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK2)
+    check("agent2 opens a ticket for a known contact", r.status == 201, r.raw[:120])
+    check("agent2: the contact and organization of a ticket it can see -> 200", call("GET", "/users/%d" % UID, token=TOK2).status == 200 and call("GET", "/organizations/%d" % OID, token=TOK2).status == 200)
+
+    # cross-department: a ticket of another department, its file and its document
+    r = call("POST", "/tickets", {"subject": "sales only %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 2}, token=TOK)
+    ST = r.data["id"]
+    b_, c_ = multipart("file", "sales-%s.txt" % U, b"sales secret " * 100)
+    SH = call("POST", "/files", token=TOK, raw=b_, ctype=c_).data
+    SDU = str(uuid.uuid4())
+    r = call("POST", "/tickets/%d/notes" % ST, {"body": "Sales document, first version", "file_ids": [SH["file_id"]], "document": {"uuid": SDU, "version": 1}}, token=TOK)
+    check("admin: note with file and document identity on the other department's ticket", r.status == 201, r.raw[:120])
+    check("agent2: that ticket, its PDF and its documents -> 403", all(call("GET", "/tickets/%d%s" % (ST, p), token=TOK2).status == 403 for p in ("", "/pdf", "/documents", "/activity")))
+    check("agent2: document uuid of another department -> 404 (no existence leak)", call("GET", "/documents/" + SDU, token=TOK2).status == 404)
+
+    def dl(hash_, tk, extra=None):
+        h = {"Range": "bytes=0-9"} if extra == "range" else {}
+        if tk:
+            h["Authorization"] = "Bearer " + tk
+        q = "?inline=1" if extra == "inline" else ""
+        try:
+            with urllib.request.urlopen(urllib.request.Request(BASE + "/files/" + hash_ + q, headers=h)) as x:
+                return x.status
+        except urllib.error.HTTPError as e:
+            return e.code
+    check("download: the owner-department agent gets the file", dl(SH["hash"], TOK) in (200, 206))
+    check("download: agent2 -> 403 whole, with Range, and inline", [dl(SH["hash"], TOK2), dl(SH["hash"], TOK2, "range"), dl(SH["hash"], TOK2, "inline")] == [403, 403, 403])
+    check("download: no token -> 401 whole and with Range", [dl(SH["hash"], None), dl(SH["hash"], None, "range")] == [401, 401])
+    check("an unknown hash and a foreign one look the same to Range (404 vs 403 never reveals content)", dl("f" * 32, TOK2, "range") == 404)
+    b_, c_ = multipart("file", "mine-%s.txt" % U, b"agent2 private upload " + U.encode())
+    MH = call("POST", "/files", token=TOK2, raw=b_, ctype=c_).data["hash"]
+    check("an unattached upload is readable by its uploader only", dl(MH, TOK2) == 200 and dl(MH, TOK) == 403 and dl(MH, TOK2, "range") == 206)
+    check("a document version cannot be planted on a second ticket", call("POST", "/tickets/%d/notes" % TID, {"body": "Sales document, first version", "document": {"uuid": SDU, "version": 1}}, token=TOK).status == 409)
+
+    # hourly budgets: seeded so the test is deterministic, cleaned afterwards
+    hour = time.strftime("%Y%m%d%H", time.gmtime())
+    def seed(staff, bucket, n):
+        sql("insert into ost_workflow_idempotency set kind='throttle', staff_id=%d, idem_key='th:%s:%s', status='done', counter=%d, created=NOW(), expires=DATE_ADD(NOW(), INTERVAL 2 HOUR) on duplicate key update counter=%d" % (staff, bucket, hour, n, n))
+    def unseed(staff, bucket):
+        sql("delete from ost_workflow_idempotency where kind='throttle' and staff_id=%d and idem_key='th:%s:%s'" % (staff, bucket, hour))
+    if sql("select 1") is not None:
+        seed(2, "lookup", 100000)
+        r = call("GET", "/users?q=e2e", token=TOK2)
+        check("budget: an agent without directory access is limited on lookups (429 + Retry-After)", r.status == 429 and "Retry-After" in r.headers and r.err == "rate_limited")
+        check("budget: directory agents are not charged", call("GET", "/users?q=e2e", token=TOK).status == 200)
+        unseed(2, "lookup")
+        check("budget: the window frees the agent again", call("GET", "/users?q=e2e", token=TOK2).status == 200)
+        seed(2, "upload", 100000)
+        b_, c_ = multipart("file", "x-%s.txt" % U, b"x")
+        check("budget: uploads", call("POST", "/files", token=TOK2, raw=b_, ctype=c_).status == 429)
+        unseed(2, "upload")
+        seed(1, "pdf", 100000)
+        check("budget: ticket PDFs", call("GET", "/tickets/%d/pdf" % TID, token=TOK).status == 429)
+        unseed(1, "pdf")
+        seed(1, "mail", 100000)
+        K = str(uuid.uuid4())
+        rb = {"body": "budget probe", "notify": "user"}
+        r = call("POST", "/tickets/%d/replies" % TID, rb, token=TOK, key=K)
+        check("budget: customer e-mail (reply with notify) -> 429", r.status == 429 and r.err == "rate_limited")
+        check("budget: notify none is not e-mail and is not charged", call("POST", "/tickets/%d/replies" % TID, {"body": "no mail here", "notify": "none"}, token=TOK).status == 201)
+        unseed(1, "mail")
+        r = call("POST", "/tickets/%d/replies" % TID, rb, token=TOK, key=K)
+        check("budget: a 429 is not replayed for the same Idempotency-Key", r.status == 201 and "Idempotent-Replayed" not in r.headers, "%s %s" % (r.status, r.raw[:100]))
+    else:
+        skip("hourly budgets", "no DB access")
+else:
+    skip("directory, cross-department and budget checks", "no AGENT2_USER/AGENT2_PASS")
 
 # ------------------------------------------------------------------ crash recovery (needs DB access)
 print("\n[idempotency crash recovery]")

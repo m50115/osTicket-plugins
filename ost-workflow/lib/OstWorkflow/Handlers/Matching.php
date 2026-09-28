@@ -28,6 +28,7 @@ final class Matching {
 
     /** GET /match/contact?email=&phone=&name=&org_id= */
     static function contact(Request $req) {
+        if (!\OstWorkflow\Directory::full($req->staff)) \OstWorkflow\Throttle::hit($req->staff, 'lookup');
         $r = self::findContacts((string) $req->q('email', ''), (string) $req->q('phone', ''), (string) $req->q('name', ''),
             $req->q('org_id') !== null ? self::intArg($req, 'org_id') : null);
         return Res::ok($r['result'], ['query' => array_filter(['email' => $req->q('email'), 'phone' => $req->q('phone'), 'name' => $req->q('name'), 'org_id' => $req->q('org_id')])]);
@@ -78,8 +79,11 @@ final class Matching {
     static function organization(Request $req) {
         require_once(INCLUDE_DIR . 'class.organization.php');
         // SAFE by server identity: an id, or the resource recorded for one of this agent's own idempotency keys.
+        if (!\OstWorkflow\Directory::full($req->staff)) \OstWorkflow\Throttle::hit($req->staff, 'lookup');
         if ($req->q('id') !== null) {
             $o = \Organization::lookup(self::intArg($req, 'id'));
+            // An id is not a search: outside the directory it only answers for organizations the agent may read.
+            if ($o && !\OstWorkflow\Directory::mayRead($req->staff, 'organization', $o->getId())) $o = null;
             return Res::ok($o ? ['classification' => 'safe', 'matches' => [['reason' => 'server_id', 'organization' => self::orgBrief($o)]]]
                               : ['classification' => 'none', 'matches' => []]);
         }

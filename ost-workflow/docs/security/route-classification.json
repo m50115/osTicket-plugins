@@ -1,0 +1,1056 @@
+{
+ "routes": {
+  "GET /ping": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "core (health)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Public; returns {\"status\":\"ok\"} only.",
+   "recommendation": "KEEP"
+  },
+  "GET /config": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "all modules",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Authenticated; limits and enabled modules, never secrets.",
+   "recommendation": "KEEP"
+  },
+  "POST /auth/login": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "core",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "yes (token revocable)",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Credential stuffing: 5 failures per user+real IP lock 30 min; generic 401; token signed with its own secret.",
+   "recommendation": "KEEP"
+  },
+  "POST /auth/logout": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "core",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Revokes only the caller's own token(s); \"all\" ends the caller's own sessions.",
+   "recommendation": "KEEP"
+  },
+  "GET /auth/verify": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "core",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Own profile/permissions only (signature is readable, no longer writable).",
+   "recommendation": "KEEP"
+  },
+  "GET /me": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "core",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Own profile/permissions only (signature is readable, no longer writable).",
+   "recommendation": "KEEP"
+  },
+  "GET /me/permissions": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "core",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Own profile/permissions only (signature is readable, no longer writable).",
+   "recommendation": "KEEP"
+  },
+  "GET /departments": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets (assign/transfer/refer)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Colleague names and e-mails inside the agent's visible departments (SCP visibility); login names removed from the payload in the hardening.",
+   "recommendation": "KEEP"
+  },
+  "GET /departments/{id}/assignees": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets (assign/transfer/refer)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Colleague names and e-mails inside the agent's visible departments (SCP visibility); login names removed from the payload in the hardening.",
+   "recommendation": "KEEP"
+  },
+  "GET /staff": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets (assign/transfer/refer)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Colleague names and e-mails inside the agent's visible departments (SCP visibility); login names removed from the payload in the hardening.",
+   "recommendation": "KEEP"
+  },
+  "GET /teams": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets (assign/transfer/refer)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Colleague names and e-mails inside the agent's visible departments (SCP visibility); login names removed from the payload in the hardening.",
+   "recommendation": "KEEP"
+  },
+  "GET /teams/{id}/members": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets (assign/transfer/refer)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Colleague names and e-mails inside the agent's visible departments (SCP visibility); login names removed from the payload in the hardening.",
+   "recommendation": "KEEP"
+  },
+  "GET /topics": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /statuses": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /priorities": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /slas": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /catalog/sources": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /topics/{id}/forms": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /forms/ticket": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /forms/user": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /forms/organization": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "R",
+   "consumer": "tickets, contacts, service_orders",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Catalog/form definitions; no business data. ETag/304.",
+   "recommendation": "KEEP"
+  },
+  "GET /canned": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets (templates)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "USEFUL_BUT_NOT_REQUIRED",
+   "abuse": "Templates per department visibility; render has no external effect.",
+   "recommendation": "KEEP"
+  },
+  "GET /canned/{id}/render": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets (templates)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "USEFUL_BUT_NOT_REQUIRED",
+   "abuse": "Templates per department visibility; render has no external effect.",
+   "recommendation": "KEEP"
+  },
+  "GET /queues": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets (saved queues)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "NO_CONSUMER_YET",
+   "abuse": "Saved-queue query intersected with the agent's ticket visibility; no wider than GET /tickets.",
+   "recommendation": "KEEP"
+  },
+  "GET /queues/{id}/tickets": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets (saved queues)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "NO_CONSUMER_YET",
+   "abuse": "Saved-queue query intersected with the agent's ticket visibility; no wider than GET /tickets.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Bounded by ticket visibility (dept/assigned/referral); paging scrapes only what the agent already sees in the SCP.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/lookup": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Bounded by ticket visibility (dept/assigned/referral); paging scrapes only what the agent already sees in the SCP.",
+   "recommendation": "KEEP"
+  },
+  "GET /search": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Bounded by ticket visibility (dept/assigned/referral); paging scrapes only what the agent already sees in the SCP.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets, service_orders, quotes",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "partial (no delete; close)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Spam tickets; autoresponse mail. notify default false, staff alerts off, mail hourly budget; `fields` is now whitelisted (mass assignment fixed: dept/assignee/status/SLA/due/autoresponse cannot be forged).",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/missing-fields": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/participants": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/recipients": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/fields": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/related": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/collaborators": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/actions": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/targets": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/sla": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/activity": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/tasks": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/documents": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "ticket.view (Policy) — the SCP visibility rule; 403 otherwise.",
+   "recommendation": "KEEP"
+  },
+  "GET /tickets/{id}/pdf": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets, pdf_signer",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "USEFUL_BUT_NOT_REQUIRED",
+   "abuse": "Whole ticket (optionally with internal notes/events) in one file: exfiltration unit; CPU heavy. Same ACL as ticket.view + hourly budget.",
+   "recommendation": "KEEP"
+  },
+  "PATCH /tickets/{id}/collaborators/{uid}": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (CC management)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (toggle)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Re-activating a CC makes later public replies reach that contact; visible in the thread events. (DELETE removed: deactivation is the reversible path.)",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/collaborators": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (CC management)",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "partial (deactivate, entry stays)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "A stolen token can add an attacker address as CC so every later customer reply reaches it (also portal read access). Needs ticket.edit; a NEW contact needs user.create; event `collab` is visible in the thread. Residual: contact ids are usable without directory access.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/status": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value)",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Mass close/reopen with a token; every change checks base and ticket.close/create; no e-mail by itself.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/assignment": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Reassignment noise; alert is opt-in (default false); base value required.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/claim": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Reassignment noise; alert is opt-in (default false); base value required.",
+   "recommendation": "KEEP"
+  },
+  "DELETE /tickets/{id}/assignment": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (release)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (assign again)",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Verb DELETE but nothing is deleted: it releases the assignment and logs `released`.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/transfer": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "tickets",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "partial (needs access in the target dept)",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Can move a ticket out of everyone's sight; requires ticket.transfer; alert opt-in; base value required.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/referrals": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "tickets",
+   "impact": "APPEND_ONLY",
+   "reversible": "partial",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Grants another agent/team/dept visibility of the ticket; append-only, logged.",
+   "recommendation": "KEEP"
+  },
+  "PATCH /tickets/{id}/fields/{name}": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets, service_orders",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Field edits carry base; conflicting writes are 409; edits are logged as thread events.",
+   "recommendation": "KEEP"
+  },
+  "PUT /tickets/{id}/forms": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets, service_orders",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Field edits carry base; conflicting writes are 409; edits are logged as thread events.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/sla": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (SLA operations)",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "partial (`clear_overdue`/`disable` drop deadlines)",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Can hide an SLA breach (disable, clear_overdue) with ticket.edit; every operation leaves an internal SLA note plus the core events.",
+   "recommendation": "NEEDS_MSOLIS_DECISION"
+  },
+  "PUT /tickets/{id}/owner": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "none designed yet",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "partial (previous owner stays in the event log)",
+   "necessity": "NO_CONSUMER_YET",
+   "abuse": "Moves the whole conversation and portal access to another contact: a stolen token could hand a thread to a wrong or hostile address.",
+   "recommendation": "NEEDS_MSOLIS_DECISION"
+  },
+  "POST /tickets/{id}/answered": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Flag toggle; no external effect.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/replies": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "no (e-mail already sent)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "External e-mail. `notify` is REQUIRED (no default), claim and signature are explicit, `cc` accepts existing contacts only, PDF needs text, hourly budget (limit_mail_per_hour).",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/notes": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets, service_orders, pdf_signer",
+   "impact": "APPEND_ONLY",
+   "reversible": "n/a (append-only)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Internal only; alert default false; files must be the agent's own uploads; PDF needs explanatory text.",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/notes/{entry}/files": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets, service_orders, pdf_signer",
+   "impact": "APPEND_ONLY",
+   "reversible": "n/a (append-only)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Internal only; alert default false; files must be the agent's own uploads; PDF needs explanatory text.",
+   "recommendation": "KEEP"
+  },
+  "PATCH /tickets/{id}/notes/{entry}": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (old version kept hidden)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Internal notes only; edit = new linked entry, old one hidden and kept; never e-mails.",
+   "recommendation": "KEEP"
+  },
+  "GET /documents/{uuid}": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "pdf_signer, service_orders, quotes",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Only versions on tickets the agent can see; unknown/foreign uuid is 404.",
+   "recommendation": "KEEP"
+  },
+  "POST /files": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets, tasks",
+   "impact": "APPEND_ONLY",
+   "reversible": "yes (core purges unattached files)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Storage/disk fill: per-file cap, type sniffing, hourly upload budget; the file is readable by its uploader only until attached.",
+   "recommendation": "KEEP"
+  },
+  "GET /files/{hash}": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets, tasks",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Exfiltration surface: ACL = uploader, or an attachment on a ticket/task the agent can see; Range/inline/thumbnail run the same check first; CSP sandbox + nosniff.",
+   "recommendation": "KEEP"
+  },
+  "GET /tasks": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets (delegated work)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "task.view (SCP visibility).",
+   "recommendation": "KEEP"
+  },
+  "GET /tasks/{id}": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets (delegated work)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "task.view (SCP visibility).",
+   "recommendation": "KEEP"
+  },
+  "GET /tasks/{id}/thread": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "tickets (delegated work)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "task.view (SCP visibility).",
+   "recommendation": "KEEP"
+  },
+  "POST /tickets/{id}/tasks": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (delegated work)",
+   "impact": "APPEND_ONLY",
+   "reversible": "partial (close)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Creates internal work items; alert default false.",
+   "recommendation": "KEEP"
+  },
+  "POST /tasks/{id}/notes": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (delegated work)",
+   "impact": "APPEND_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Task thread is internal; PDF rule applies.",
+   "recommendation": "KEEP"
+  },
+  "POST /tasks/{id}/replies": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (delegated work)",
+   "impact": "APPEND_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Task thread is internal; PDF rule applies.",
+   "recommendation": "KEEP"
+  },
+  "PATCH /tasks/{id}/notes/{entry}": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (delegated work)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Same edit rule as ticket notes.",
+   "recommendation": "KEEP"
+  },
+  "POST /tasks/{id}/status": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (delegated work)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Base value required; alert opt-in.",
+   "recommendation": "KEEP"
+  },
+  "POST /tasks/{id}/assignment": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (delegated work)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Base value required; alert opt-in.",
+   "recommendation": "KEEP"
+  },
+  "POST /tasks/{id}/transfer": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (delegated work)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Base value required; alert opt-in.",
+   "recommendation": "KEEP"
+  },
+  "PUT /tasks/{id}": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "tickets (delegated work)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Base value required; alert opt-in.",
+   "recommendation": "KEEP"
+  },
+  "GET /users": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts, tickets (contact lookup)",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Directory reads: `user.dir` agents browse/page; the rest get autocomplete-sized (10), unpaged, min 3 chars, hourly lookup budget.",
+   "recommendation": "KEEP"
+  },
+  "POST /users": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "contacts",
+   "impact": "APPEND_ONLY",
+   "reversible": "partial (no delete)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Creates a portal identity; 409 candidates before creating; needs user.create.",
+   "recommendation": "KEEP"
+  },
+  "GET /users/{id}": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only.",
+   "recommendation": "KEEP"
+  },
+  "GET /users/{id}/tickets": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only.",
+   "recommendation": "KEEP"
+  },
+  "GET /users/{id}/fields": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only.",
+   "recommendation": "KEEP"
+  },
+  "GET /users/{id}/notes": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only.",
+   "recommendation": "KEEP"
+  },
+  "POST /users/{id}/notes": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Reading one contact needs user.dir OR the contact is on a ticket the agent can see OR the agent created it (403 otherwise; id enumeration closed). Notes are append-only.",
+   "recommendation": "KEEP"
+  },
+  "PATCH /users/{id}": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "yes (base value; old value in the event)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Changing a contact's e-mail redirects its future mail and portal login: needs user.edit + base value.",
+   "recommendation": "NEEDS_MSOLIS_DECISION"
+  },
+  "PUT /users/{id}/organization": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "yes (base value)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Organization membership drives org-shared ticket visibility in the portal; needs user.edit + base.",
+   "recommendation": "KEEP"
+  },
+  "GET /organizations": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent).",
+   "recommendation": "KEEP"
+  },
+  "GET /organizations/{id}": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent).",
+   "recommendation": "KEEP"
+  },
+  "GET /organizations/{id}/members": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent).",
+   "recommendation": "KEEP"
+  },
+  "GET /organizations/{id}/tickets": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent).",
+   "recommendation": "KEEP"
+  },
+  "GET /organizations/{id}/fields": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent).",
+   "recommendation": "KEEP"
+  },
+  "GET /organizations/{id}/notes": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent).",
+   "recommendation": "KEEP"
+  },
+  "POST /organizations/{id}/notes": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Same directory rule as users (user.dir, or an organization on a visible ticket, or created by the agent).",
+   "recommendation": "KEEP"
+  },
+  "POST /organizations": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "contacts",
+   "impact": "APPEND_ONLY",
+   "reversible": "partial (no delete)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "409 candidates before creating; needs org.create.",
+   "recommendation": "KEEP"
+  },
+  "PUT /organizations/{id}": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "contacts",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value)",
+   "necessity": "USEFUL_BUT_NOT_REQUIRED",
+   "abuse": "Rename with base value; duplicate names are refused as candidates. Needs org.edit.",
+   "recommendation": "KEEP"
+  },
+  "PATCH /organizations/{id}/profile": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "none designed yet",
+   "impact": "ADMINISTRATIVE",
+   "reversible": "yes (base values)",
+   "necessity": "NO_CONSUMER_YET",
+   "abuse": "Changes account manager, domain mapping, collaborator auto-add and ticket SHARING between members (`share_everybody`): exposure of tickets in the portal. Needs org.edit + base.",
+   "recommendation": "NEEDS_MSOLIS_DECISION"
+  },
+  "PATCH /organizations/{id}/extra": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "contacts (BCW extra, D-12)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (compare-and-swap)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Real CAS on the raw text; only the BCW line is touched.",
+   "recommendation": "KEEP"
+  },
+  "GET /match/contact": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts, tickets (match before create)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read.",
+   "recommendation": "KEEP"
+  },
+  "GET /match/organization": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts, tickets (match before create)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read.",
+   "recommendation": "KEEP"
+  },
+  "GET /match/ticket": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts, tickets (match before create)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read.",
+   "recommendation": "KEEP"
+  },
+  "GET /sync/tickets": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "all (offline sync)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Bounded by ticket/task visibility.",
+   "recommendation": "KEEP"
+  },
+  "GET /sync/visible-ticket-ids": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "all (offline sync)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Bounded by ticket/task visibility.",
+   "recommendation": "KEEP"
+  },
+  "GET /sync/tasks": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "all (offline sync)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Bounded by ticket/task visibility.",
+   "recommendation": "KEEP"
+  },
+  "GET /sync/users": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts (offline directory, P-05 open)",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "NO_CONSUMER_YET",
+   "abuse": "Bulk copy of every contact/organization: now requires user.dir (was open to any agent).",
+   "recommendation": "KEEP"
+  },
+  "GET /sync/organizations": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "contacts (offline directory, P-05 open)",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "n/a",
+   "necessity": "NO_CONSUMER_YET",
+   "abuse": "Bulk copy of every contact/organization: now requires user.dir (was open to any agent).",
+   "recommendation": "KEEP"
+  },
+  "GET /reports/support": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "support",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Aggregates over the agent's visible tickets only.",
+   "recommendation": "KEEP"
+  }
+ },
+ "removed_2026_09_28": [
+  {
+   "route": "DELETE /tickets/{id}/collaborators/{uid}",
+   "reason": "Hard removal of a collaborator: no approved requirement (OW-REQ-58 says add, activate, deactivate), a reversible alternative exists (PATCH ... active:false), no consumer.",
+   "replacement": "PATCH /tickets/{id}/collaborators/{uid} {active:false}"
+  },
+  {
+   "route": "POST /organizations/{id}/members",
+   "reason": "Redundant with PUT /users/{id}/organization (base-checked); changes who sees organization-shared tickets; no consumer.",
+   "replacement": "PUT /users/{id}/organization"
+  },
+  {
+   "route": "DELETE /organizations/{id}/members/{uid}",
+   "reason": "Same as above (org_id:null removes the organization).",
+   "replacement": "PUT /users/{id}/organization {org_id:null}"
+  },
+  {
+   "route": "PATCH /me",
+   "reason": "No consumer designed; `signature` is appended to customer e-mails (phishing vector for a stolen token) and `on_vacation` disables assignment. Re-introduce only if the Configuration module demonstrates the need, without `signature`.",
+   "replacement": "none (GET /me stays)"
+  }
+ ]
+}

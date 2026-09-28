@@ -7,6 +7,7 @@ use OstWorkflow\RateLimit;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Threading;
+use OstWorkflow\Throttle;
 
 /**
  * Ticket thread: composite activity feed (entries + events), public replies,
@@ -125,6 +126,7 @@ final class Threads {
         $signature = $req->input('signature', 'none');
         if (!in_array($signature, ['none', 'mine', 'dept'], true))
             throw ApiError::validation("'signature' must be none, mine or dept", 'signature');
+        if ($notify !== 'none') Throttle::hit($staff, 'mail');   // customer e-mail is the outward effect a stolen token could abuse
         $files = Attachments::resolve($req->input('file_ids'), $staff);
         Attachments::assertText(Threading::plainBody($req), $files);
         $statusId = $req->input('status_id') !== null

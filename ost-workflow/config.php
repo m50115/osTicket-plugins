@@ -51,6 +51,34 @@ class OstWorkflowConfig extends PluginConfig {
                 'required' => true,
                 'configuration' => array('size' => 4, 'length' => 3),
             )),
+            'limit_mail_per_hour' => new TextboxField(array(
+                'label'    => __('Max messages e-mailed to customers per agent per hour'),
+                'hint'     => __('Public replies with notify and tickets created with notify. Caps the damage of a stolen token. 0 disables the limit.'),
+                'default'  => '100',
+                'required' => false,
+                'configuration' => array('size' => 5, 'length' => 5),
+            )),
+            'limit_uploads_per_hour' => new TextboxField(array(
+                'label'    => __('Max file uploads per agent per hour'),
+                'hint'     => __('0 disables the limit.'),
+                'default'  => '200',
+                'required' => false,
+                'configuration' => array('size' => 5, 'length' => 5),
+            )),
+            'limit_pdf_per_hour' => new TextboxField(array(
+                'label'    => __('Max ticket PDFs per agent per hour'),
+                'hint'     => __('0 disables the limit.'),
+                'default'  => '60',
+                'required' => false,
+                'configuration' => array('size' => 5, 'length' => 5),
+            )),
+            'limit_lookups_per_hour' => new TextboxField(array(
+                'label'    => __('Max contact/organization searches per agent per hour (agents without directory access)'),
+                'hint'     => __('0 disables the limit.'),
+                'default'  => '300',
+                'required' => false,
+                'configuration' => array('size' => 5, 'length' => 5),
+            )),
             'trusted_proxies' => new TextboxField(array(
                 'label'    => __('Trusted proxy IPs / CIDRs (comma separated)'),
                 'hint'     => __('X-Forwarded-For is honoured only from these addresses (used for login rate limiting).'),
@@ -84,8 +112,9 @@ class OstWorkflowConfig extends PluginConfig {
         foreach (array('token_ttl_days','max_files_per_note','max_file_bytes') as $k)
             if (isset($config[$k]) && (!ctype_digit((string) $config[$k]) || (int) $config[$k] < 1))
                 $errors[$k] = __('Must be a positive integer');
-        if (isset($config['min_text_with_pdf']) && !ctype_digit((string) $config['min_text_with_pdf']))
-            $errors['min_text_with_pdf'] = __('Must be 0 or a positive integer');
+        foreach (array('min_text_with_pdf','limit_mail_per_hour','limit_uploads_per_hour','limit_pdf_per_hour','limit_lookups_per_hour') as $k)
+            if (isset($config[$k]) && $config[$k] !== '' && !ctype_digit((string) $config[$k]))
+                $errors[$k] = __('Must be 0 or a positive integer');
         foreach (array('default_dept_id','default_topic_id') as $k)
             if (!empty($config[$k]) && !ctype_digit((string) $config[$k]))
                 $errors[$k] = __('Must be a numeric id');

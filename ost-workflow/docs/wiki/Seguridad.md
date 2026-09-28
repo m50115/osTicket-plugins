@@ -30,3 +30,18 @@ El plugin no escribe archivos en su directorio (el phar no admite escritura y lo
 | Editar respuestas públicas y mensajes de clientes | la respuesta ya se envió por correo; se corrige con una respuesta nueva. **Sí** se pueden editar las **notas internas** (`PATCH …/notes/{entry}`; solo el autor, el gerente del departamento o quien tenga `thread.edit`; cada edición crea una versión nueva y oculta la anterior, sin borrarla; sin correo): ver [Respuestas-y-Notas.md](Respuestas-y-Notas.md) |
 | Adquirir el bloqueo del ticket | el lock de escritorio solo se lee |
 | URL de descarga del núcleo | exige sesión del panel |
+| Quitar un colaborador (`DELETE …/collaborators/{uid}`) | se desactiva con `PATCH … {active:false}`: reversible y con rastro (retirada el 2026-09-28) |
+| Alta y baja de miembros de una organización (`…/members`) | `PUT /users/{id}/organization` lo cubre, con valor base (retirada el 2026-09-28) |
+| Editar el perfil propio (`PATCH /me`) | la firma llega por correo a los clientes y `on_vacation` frena las asignaciones; ningún módulo lo necesita (retirada el 2026-09-28) |
+
+## Endurecimiento y línea base (2026-09-28)
+La superficie es de **103 rutas**, cada una clasificada (impacto, reversibilidad, necesidad, riesgo de abuso) en [`../security/Route-Surface.md`](../security/Route-Surface.md); la clasificación es la única fuente editable ([`route-classification.json`](../security/route-classification.json)) y `ci-check.sh` falla si una ruta queda sin clasificar. Sin borrados duros en ningún handler (guardia en CI). Controles añadidos en esta revisión, cada uno con prueba en `e2e.py`:
+
+* **`fields` de `POST /tickets`** acepta solo campos personalizados del tema; `deptId`, `staffId`, `statusId`, `slaId`, `duedate`, `autorespond`… dan `422` (antes se pasaban al núcleo y saltaban las comprobaciones de departamento/asignación y el correo).
+* **Directorio de contactos y organizaciones:** con `user.dir` se navega, se pagina y se sincroniza (`/sync/users`, `/sync/organizations`); sin él, la búsqueda es del tamaño de un autocompletado (10 resultados, sin páginas, `q` ≥ 3) y un contacto/organización solo se lee si está en un ticket visible o lo creó el agente.
+* **Presupuestos por hora y agente** (`429 rate_limited`, `details.bucket`): correo a clientes (`limit_mail_per_hour`, 100), subidas (`limit_uploads_per_hour`, 200), PDF de ticket (`limit_pdf_per_hour`, 60), búsquedas de contactos sin directorio (`limit_lookups_per_hour`, 300). `0` desactiva. Un 429 no se reproduce con la misma `Idempotency-Key`.
+* **Correo por defecto apagado:** crear ticket, notas, asignación, transferencia, referencias y tareas no envían correo salvo `notify`/`alert` explícitos (comprobado contra Mailpit, con control positivo).
+* **Descargas:** `GET /files/{hash}` aplica el mismo control de acceso completo, con `Range`, con `inline` y con miniatura; un archivo subido y aún sin adjuntar solo lo lee quien lo subió.
+* El catálogo de agentes ya no publica los nombres de usuario (login).
+
+**Riesgo residual documentado:** un identificador de contacto (`user_id`) puede usarse al crear un ticket, cambiar el dueño, añadir colaboradores o poner `cc` sin acceso al directorio (igual que el panel); cada uso deja rastro visible en el ticket y la respuesta puede mostrar el nombre y el correo de ese contacto.

@@ -2,8 +2,8 @@
 
 Handlers `Me.php`, `Queues.php`, `Documents.php` (+ `OstWorkflow\Documents`). Base-value rule as in [tickets](tickets.md).
 
-## `PATCH /me` (policy `auth`)
-The agent edits **only their own profile**: `first_name`, `last_name` (≤32, not empty), `phone` (≤24), `phone_ext` (≤6), `mobile` (≤24), `signature` (≤4000, sanitized), `timezone` (a PHP time zone id or `""` for the system default), `default_signature_type` (`none|mine|dept`) and **`on_vacation`** (bool; makes the agent unavailable for assignment). Never username, e-mail, role, departments or permissions (422 naming the key). Every key changed carries `base` (the value the app saw); stale → `409 conflict` with `details.current{}`; same value → `applied:false`. Response `{applied, changed[], profile}` (the same object as `GET /me`).
+## `GET /me`, `GET /me/permissions` (read-only)
+`PATCH /me` was **removed** in the 2026-09-28 hardening: the agent's `signature` is appended to customer e-mails (a stolen token could plant a phishing link in every later reply) and `on_vacation` disables assignment; no module needs a profile edit. It can come back, without `signature`, if the Configuration module demonstrates the need. Negative test in `e2e.py`.
 
 ## Saved queues (read-only)
 * `GET /queues[?counts=1]` — the agent's queues (osTicket's own hierarchy: "Open", "My Tickets", "Closed", custom searches…) as a flat list `{id, name, full_name, parent_id, depth, is_public, is_owner[, count]}`. `counts=1` adds the visible ticket count of each queue (one query per queue).

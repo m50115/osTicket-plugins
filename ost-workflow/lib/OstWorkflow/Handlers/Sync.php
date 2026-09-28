@@ -115,6 +115,7 @@ final class Sync {
     // Date-only entities: window >= since - 5 s, ordered by (updated, id)
     // ------------------------------------------------------------------
     static function users(Request $req) {
+        \OstWorkflow\Directory::requireFull($req->staff);   // a bulk copy of every contact: directory access only
         return self::byDate($req, USER_TABLE, 'id', function ($id) {
             require_once(INCLUDE_DIR . 'class.user.php');
             $u = \User::lookup((int) $id);
@@ -123,6 +124,7 @@ final class Sync {
     }
 
     static function orgs(Request $req) {
+        \OstWorkflow\Directory::requireFull($req->staff);
         return self::byDate($req, ORGANIZATION_TABLE, 'id', function ($id) {
             require_once(INCLUDE_DIR . 'class.organization.php');
             $o = \Organization::lookup((int) $id);
