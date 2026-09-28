@@ -133,6 +133,25 @@ final class Ticketing {
         return ['v' => $c['v'], 'i' => (int) $c['i']];
     }
 
+    /** Newest-first page of an already visibility-filtered query, cursor on ticket_id. */
+    static function pageById($qs, Request $req) {
+        $limit = $req->intQuery('limit', 25, 1, 100);
+        if (($c = $req->q('cursor')) !== null) {
+            $d = json_decode(Token::unb64($c), true);
+            if (!is_array($d) || !isset($d['i']) || !is_int($d['i'])) throw ApiError::validation('Invalid cursor', 'cursor');
+            $qs = $qs->filter(['ticket_id__lt' => $d['i']]);
+        }
+        $rows = [];
+        foreach ($qs->order_by('-ticket_id')->limit($limit + 1) as $t) $rows[] = $t;
+        $more = count($rows) > $limit;
+        $rows = array_slice($rows, 0, $limit);
+        $raw = self::rows(array_map(function ($t) { return $t->getId(); }, $rows));
+        $items = [];
+        foreach ($rows as $t) $items[] = self::summary($t, $raw[(int) $t->getId()] ?? []);
+        $next = ($more && $rows) ? Token::b64(json_encode(['i' => (int) end($rows)->getId()])) : null;
+        return Res::page($items, $next);
+    }
+
     // ------------------------------------------------------------------
     // Base-value preconditions (Architecture §K)
     // ------------------------------------------------------------------
