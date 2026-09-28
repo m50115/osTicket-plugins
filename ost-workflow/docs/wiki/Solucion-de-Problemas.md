@@ -16,6 +16,8 @@ Síntomas y su causa. Todos se reprodujeron en el sandbox, salvo el último, que
 | Un emoji desaparece del mensaje | la base de datos es `utf8mb3` (osTicket lo descarta) | revisa `effects.sanitized` y `/config` → `text`; usa `unsupported_chars:"reject"` si no quieres perderlo en silencio |
 | `409 needs_review` | un intento anterior murió y no se puede probar lo que creó | verifique en el servidor (p. ej. `GET /match/ticket?marker=wf:<clave>`) |
 | `409 conflict` al actualizar | el valor cambió desde que el cliente lo leyó | mostrar `details.current` y `details.last_change` |
+| `409 conflict` con `details.current_entry_id` al editar una nota | la nota ya tiene una versión más nueva (otra edición) | releer la nota, mostrar la versión vigente y reaplicar sobre `current_entry_id` ([Respuestas-y-Notas.md](Respuestas-y-Notas.md)) |
+| `422 not_editable_type` al editar | la entrada es una respuesta pública o un mensaje del cliente | solo las notas internas se editan; publique una respuesta nueva |
 | `422` "'base' is required" | actualización sin valor base | envíe `base` (o `null` si estaba vacío) |
 | Un ticket aparece dos veces en una lista | (corregido) el filtro de visibilidad duplicaba tickets con referencias | actualice al plugin actual |
 | Horas desfasadas una hora | (corregido) la zona horaria de MySQL era ambigua (p. ej. `CST`) | actualice al plugin actual: comprueba la zona contra el reloj de MySQL |

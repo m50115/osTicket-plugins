@@ -10,7 +10,7 @@
 |---|---|
 | Versión | 0.1 (API `v1`) |
 | Cobertura | 99 rutas: sesión, catálogos, tickets, hilo y archivos, contactos y organizaciones, tareas, reconciliación, sincronización e informes |
-| Probado en | osTicket 1.17.2 con **PHP 8.0.30 + opcache + nginx** (la configuración real de producción) y con PHP 8.2 |
+| Probado en | osTicket 1.17.2 con **PHP 8.0.30 + opcache + nginx** (reproduce la configuración de producción —PHP 8.0, opcache, nginx real— salvo las diferencias listadas en [Pruebas-y-Sandbox.md](Pruebas-y-Sandbox.md)) y con PHP 8.2 |
 | No probado todavía | despliegue en contenedores/ECS reales, almacenamiento S3, correo y cron de producción, clientes móviles |
 | Licencia | MIT (objetivo del proyecto) |
 
@@ -24,6 +24,7 @@ Cada página indica qué está validado y qué no.
 - [Convenciones.md](Convenciones.md): sobre de respuesta, autenticación, idempotencia, valores base, cursores, fechas y errores.
 - [API-Reference.md](API-Reference.md): las 99 rutas con su permiso.
 - [Sincronizacion-y-Trabajo-Offline.md](Sincronizacion-y-Trabajo-Offline.md): cómo un cliente offline debe usar la API.
+- [Respuestas-y-Notas.md](Respuestas-y-Notas.md): respuesta pública frente a nota interna y edición de notas internas (versiones, errores, evidencia).
 - [Seguridad.md](Seguridad.md): autenticación, permisos, límites y lo que no se expone.
 - [Pruebas-y-Sandbox.md](Pruebas-y-Sandbox.md): cómo probar el plugin en un entorno parecido a producción.
 - [Solucion-de-Problemas.md](Solucion-de-Problemas.md): síntomas comprobados y su causa.

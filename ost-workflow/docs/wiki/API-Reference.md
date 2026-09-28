@@ -76,7 +76,7 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 
 ## Hilo y archivos
 
-Detalle: [threads-files.md](../endpoints/threads-files.md)
+Detalle: [threads-files.md](../endpoints/threads-files.md). Respuestas frente a notas y edición de notas internas (`PATCH …/notes/{entry}`, con la regla adicional autor, gerente del departamento o `thread.edit`): [Respuestas-y-Notas.md](Respuestas-y-Notas.md).
 
 | Método | Ruta | Permiso |
 |---|---|---|

@@ -30,5 +30,8 @@ Antes de crear un contacto, organización o ticket cuyo alta se dudó (por ejemp
 
 Usuarios y organizaciones tienen ventanas de fechas (`/sync/users`, `/sync/organizations`) con solapamiento de 5 s; deduplique por `(id, updated)`.
 
+## Notas editadas: versiones ocultas, no borradas
+Editar una nota interna crea una entrada nueva con `supersedes:<id anterior>` y oculta la anterior; nunca se borra. Al recibir una entrada con `supersedes`, el cliente oculta localmente la entrada referida y muestra la nueva en el lugar de la original (misma `created`). Como los cursores son ids, la edición llega como un id nuevo. Si la escritura devuelve `409` con `details.current_entry_id`, la nota cambió desde que se leyó: vuelva a leerla y reaplique la edición. Detalle en [Respuestas-y-Notas.md](Respuestas-y-Notas.md).
+
 ## Conflictos
 Lleve el valor base en cada actualización. Ante `409 conflict` el cliente muestra el valor actual, el autor y la hora del último cambio (`details.last_change`) y deja decidir a la persona.

@@ -26,11 +26,14 @@ Diferencias conocidas respecto a producción: sin `intl` (PHP 8.0 no compila con
 | Correo: `notify=none` / `notify=all` | 0 correos / correo al dueño y CC a colaboradores |
 | Cursor compuesto de sincronización | una nota nueva se detecta aunque `ticket.updated` no cambie |
 | Permisos con un agente de rol limitado | `403` con el permiso que falta |
+| Edición de notas internas | aplicada, `409` con versión antigua, `422` en respuesta pública, versión anterior oculta y nota de tarea: comprobadas por `e2e.py`; el resto de la semántica, sin comprobación ejecutable (ver [Respuestas-y-Notas.md](Respuestas-y-Notas.md)) |
+
+**Cobertura por script.** Estas comprobaciones se realizaron en el sandbox. Tienen además un script en el repositorio (`e2e.py`): reintento con la misma clave, cursor compuesto de sincronización, permisos con un agente limitado y bloqueo de login. La coexistencia con `mobile`, el reemplazo del phar con opcache, la desactivación del plugin, el ruteo y el `413` de nginx y el correo (`notify`) se comprobaron a mano, sin script en el repositorio. `smoke.sh` no toca la edición de notas.
 
 ## Pruebas automáticas y guardias (carpeta `prod-sandbox/`)
 | Herramienta | Qué hace |
 |---|---|
-| `e2e.py [BASE]` | Suite de regresión por HTTP (~115 comprobaciones): rutas y sobre de respuesta, tokens y revocación, catálogos con ETag, contactos y organizaciones (candidatos, base, CAS), tickets (creación con reintento, estado, asignación, traspaso, campos, colaboradores), hilo y archivos (edición de notas, adjuntos, política de caracteres), tareas, sincronización compuesta, informes, permisos con un agente limitado, recuperación tras un corte de idempotencia y bloqueo de login por usuario + IP. Crea sus propios datos. |
+| `e2e.py [BASE]` | Suite de regresión por HTTP (unas cien comprobaciones: 106 llamadas a `check` en el script): rutas y sobre de respuesta, tokens y revocación, catálogos con ETag, contactos y organizaciones (candidatos, base, CAS), tickets (creación con reintento, estado, asignación, traspaso, campos, colaboradores), hilo y archivos (edición de notas, adjuntos, política de caracteres), tareas, sincronización compuesta, informes, permisos con un agente limitado, recuperación tras un corte de idempotencia y bloqueo de login por usuario + IP. Crea sus propios datos. |
 | `smoke.sh [BASE]` | 16 comprobaciones rápidas. |
 | `ci-check.sh [phar]` | Guardias estáticas: sintaxis PHP 8.0, sin funciones globales, sin `exit`/`die`, `echo` solo en el emisor, sin estado en archivos, un solo manifiesto `ost:workflow`, archivo principal mínimo; con un phar, comprueba su contenido. |
 | `build-artifact.sh` | Estampa el commit en `build_sha`, construye con PHP 8.0 en una copia del repositorio y escribe `dist/ost-workflow.phar` + `.sha256` + `build.json`. Se niega a construir si falla `ci-check.sh`. |
