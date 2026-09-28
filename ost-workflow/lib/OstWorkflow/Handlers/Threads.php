@@ -123,12 +123,15 @@ final class Threads {
             throw new ApiError('conflict', 'The contact email is banned; remove it from the ban list to reply',
                 null, ['reason' => 'email_banned']);
 
+        $cc = Threading::ccFromRequest($req);
+        $ccEffects = $cc === null ? null : Threading::applyCc($ticket, $cc);
+
         $vars = [
             'response'   => $body,
             'staffId'    => $staff->getId(),
             'poster'     => $staff,
             'reply-to'   => $notify,
-            'ccs'        => [],
+            'ccs'        => $cc ?? [],
             'files'      => Attachments::forCreate($files, $staff),
             'signature'  => $signature,
             'ip_address' => RateLimit::ip($req),
@@ -145,6 +148,7 @@ final class Threads {
 
         $effects = Threading::effects($before, Threading::snapshot($ticket));
         $effects['notify'] = $notify;
+        if ($ccEffects !== null) $effects['collaborators'] = $ccEffects;
         $effects['claim_requested'] = $claim;
         $effects['claimed'] = $effects['assignee_changed'] && ($effects['assignee']['type'] ?? null) === 'staff'
             && ($effects['assignee']['id'] ?? null) === (int) $staff->getId();

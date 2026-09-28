@@ -44,7 +44,8 @@ final class Tickets {
             ['POST',   "$id/claim",                   'claim',    ['policy' => 'ticket.assign']],
             ['POST',   "$id/transfer",                'transfer', ['policy' => 'ticket.transfer']],
             ['POST',   "$id/referrals",               'refer',    ['policy' => 'ticket.assign']],
-            ['PATCH',  "$id/fields/(?P<name>[a-z_]+)", 'editField', ['policy' => 'ticket.edit']],
+            ['PATCH',  "$id/fields/(?P<name>[A-Za-z0-9_]+)", 'editField', ['policy' => 'ticket.edit']],
+            ['PUT',    "$id/forms",                   'forms',    ['policy' => 'ticket.edit']],
             ['PUT',    "$id/owner",                   'owner',    ['policy' => 'ticket.edit']],
             ['POST',   "$id/answered",                'answered', ['policy' => 'ticket.markanswered']],
         ];
@@ -199,19 +200,21 @@ final class Tickets {
         return Res::ok($out, ['reply_to' => $who]);
     }
 
-    /** Dynamic form entries of the ticket (values as osTicket renders them). */
+    /** Dynamic form entries of the ticket (values as osTicket renders them; fields never filled show an empty value). */
     static function fields(Request $req) {
         $t = $req->ctx['ticket'];
         $forms = [];
         foreach (\DynamicFormEntry::forTicket($t->getId()) as $entry) {
             $fields = [];
-            foreach ($entry->getAnswers() as $a) {
-                $f = $a->getField();
-                if (!$f || !$f->isVisibleToStaff()) continue;
+            foreach ($entry->getFields() as $f) {
+                if (!$f->isVisibleToStaff() || $f->isPresentationOnly() || !$f->isStorable()) continue;
+                $a = $f->getAnswer();
+                $raw = $a ? $a->getValue() : null;
                 $fields[] = [
                     'id' => (int) $f->get('id'), 'name' => $f->get('name'), 'label' => (string) $f->getLabel(),
                     'type' => $f->get('type'), 'editable' => (bool) $f->isEditableToStaff(),
-                    'value' => (string) $a->toString(), 'raw' => $a->getValue() instanceof \Traversable || is_object($a->getValue()) ? null : $a->getValue(),
+                    'value' => $a ? (string) $a->toString() : '',
+                    'raw' => (is_object($raw) || $raw instanceof \Traversable || is_array($raw)) ? null : $raw,
                 ];
             }
             $forms[] = ['entry_id' => (int) $entry->get('id'), 'form_id' => (int) $entry->get('form_id'),
@@ -517,55 +520,177 @@ final class Tickets {
         return Res::created(['ticket' => Ticketing::summary($t)]);
     }
 
-    /** PATCH /tickets/{id}/fields/{priority|topic|sla|duedate} {value, base, comment?} */
+    /**
+     * PATCH /tickets/{id}/fields/{name} {value, base, comment?}
+     * name = priority | topic | sla | duedate | <dynamic field id or name>. Dynamic fields: scalar values only
+     * (text, number, boolean, phone, choice key); compared as displayed text and as raw value.
+     */
     static function editField(Request $req) {
         $t = $req->ctx['ticket'];
-        $name = $req->param('name');
-        if (!in_array($name, self::FIELDS, true))
-            throw new ApiError('not_found', "Field '$name' is not editable here", null, ['allowed' => self::FIELDS]);
         $b = $req->json();
         if (!array_key_exists('value', $b)) throw ApiError::validation("'value' is required", 'value');
         $base = Ticketing::requireBase($req);
-        $value = $b['value'];
-        if ($value === null && in_array($name, ['priority', 'topic', 'sla'], true))
-            throw ApiError::validation("'$name' cannot be cleared: send an id", 'value');
-
-        switch ($name) {
-        case 'priority': $current = (int) $t->getPriorityId(); break;
-        case 'topic':    $current = (int) $t->getTopicId(); break;
-        case 'sla':      $current = (int) $t->getSLAId(); break;
-        default:         $current = Time::iso(Ticketing::rows([$t->getId()])[(int) $t->getId()]['duedate'] ?? null);
-        }
-        if ($name === 'duedate') {
-            $desired = $value === null ? null : Time::iso(Time::toDb((string) $value));
-            if ($value !== null && !$desired) throw ApiError::validation('Invalid ISO-8601 date', 'value');
-            $base = $base === null ? null : Time::iso(Time::toDb((string) $base));
-        } else {
-            if ($value !== null && !ctype_digit((string) $value)) throw ApiError::validation("'value' must be an id", 'value');
-            $desired = $value === null ? 0 : (int) $value;
-            $base = $base === null ? 0 : (int) $base;
-        }
-        if (Ticketing::precondition($t, $current, $base, $desired, 'field') === 'noop')
+        $plan = self::planField($req, $t, (string) $req->param('name'), $b['value'], $base);
+        if ($plan['noop'])
             return Res::ok(['applied' => false, 'ticket' => Ticketing::summary($t)]);
+        $before = Threading::snapshot($t);
+        if (!self::commitField($t, $plan, (string) ($b['comment'] ?? '')))
+            return Res::ok(['applied' => false, 'ticket' => Ticketing::summary($t)]);
+        return Res::ok(self::result(\Ticket::lookup((int) $t->getId()), $before));
+    }
 
-        $field = $t->getField($name);
-        if (!$field) throw ApiError::notFound('field');
+    /**
+     * PUT /tickets/{id}/forms {fields:{key:value…}, base:{key:value…}, comment?}
+     * Batch of field edits with per-field base values. Everything is validated first (one 409 lists every
+     * conflicting field); then applied in order. The core has no transaction: if a later field is refused the
+     * error carries `applied_before_failure`.
+     */
+    static function forms(Request $req) {
+        $t = $req->ctx['ticket'];
+        $b = $req->json();
+        if (!isset($b['fields']) || !is_array($b['fields']) || !$b['fields'] || array_values($b['fields']) === $b['fields'])
+            throw ApiError::validation("'fields' must be an object {field: value}", 'fields');
+        if (!isset($b['base']) || !is_array($b['base']))
+            throw ApiError::validation("'base' is required: the current value of every field you change", 'base');
+        $plans = []; $conflicts = [];
+        foreach ($b['fields'] as $key => $value) {
+            $key = (string) $key;
+            if (!array_key_exists($key, $b['base']))
+                throw ApiError::validation("'base.$key' is required", "base.$key");
+            try {
+                $plans[$key] = self::planField($req, $t, $key, $value, $b['base'][$key]);
+            } catch (ApiError $e) {
+                if ($e->errorCode !== 'conflict') throw $e;
+                $conflicts[$key] = $e->details['current'] ?? null;
+            }
+        }
+        if ($conflicts)
+            throw new ApiError('conflict', 'One or more fields changed on the server since you read them', null,
+                ['current' => $conflicts, 'last_change' => Ticketing::lastChange($t, 'field')]);
+        $todo = array_filter($plans, function ($p) { return !$p['noop']; });
+        if (!$todo) return Res::ok(['applied' => false, 'changed' => [], 'unchanged' => array_keys($plans), 'ticket' => Ticketing::summary($t)]);
+        // Validate every value BEFORE touching anything: a bad value must not leave the batch half applied.
+        $forms = []; $first = true;
+        foreach ($todo as $key => $plan) {
+            try {
+                $forms[$key] = self::editForm($plan, $first ? (string) ($b['comment'] ?? '') : '');
+            } catch (ApiError $e) {
+                throw new ApiError($e->errorCode, $e->getMessage(), $e->field ?? $key,
+                    array_merge($e->details, ['failed_field' => $key, 'applied_before_failure' => []]), $e->headers, $e->status());
+            }
+            $first = false;
+        }
+        $before = Threading::snapshot($t);
+        $done = [];
+        foreach ($forms as $key => $form) {
+            try {
+                if (self::commitForm(\Ticket::lookup((int) $t->getId()), $form)) $done[] = $key;
+            } catch (ApiError $e) {
+                throw new ApiError($e->errorCode, $e->getMessage(), $e->field ?? $key,
+                    array_merge($e->details, ['failed_field' => $key, 'applied_before_failure' => $done]), $e->headers, $e->status());
+            }
+        }
+        $out = self::result(\Ticket::lookup((int) $t->getId()), $before);
+        $out['changed'] = $done;
+        $out['unchanged'] = array_values(array_diff(array_keys($plans), $done));
+        return Res::ok($out);
+    }
+
+    /** Validates one field edit and returns a plan; throws 409 conflict / 422 / 403 / 404. */
+    private static function planField(Request $req, \Ticket $t, $name, $value, $base) {
         global $cfg;
+        if (in_array($name, self::FIELDS, true)) {
+            if ($value === null && in_array($name, ['priority', 'topic', 'sla'], true))
+                throw ApiError::validation("'$name' cannot be cleared: send an id", 'value');
+            switch ($name) {
+            case 'priority': $current = (int) $t->getPriorityId(); break;
+            case 'topic':    $current = (int) $t->getTopicId(); break;
+            case 'sla':      $current = (int) $t->getSLAId(); break;
+            default:         $current = Time::iso(Ticketing::rows([$t->getId()])[(int) $t->getId()]['duedate'] ?? null);
+            }
+            if ($name === 'duedate') {
+                $desired = $value === null ? null : Time::iso(Time::toDb((string) $value));
+                if ($value !== null && !$desired) throw ApiError::validation('Invalid ISO-8601 date', 'value');
+                $base = $base === null ? null : Time::iso(Time::toDb((string) $base));
+            } else {
+                if ($value !== null && !ctype_digit((string) $value)) throw ApiError::validation("'value' must be an id", 'value');
+                $desired = $value === null ? 0 : (int) $value;
+                $base = $base === null ? 0 : (int) $base;
+            }
+            $noop = Ticketing::precondition($t, $current, $base, $desired, 'field') === 'noop';
+            $field = $t->getField($name);
+            if (!$field) throw ApiError::notFound('field');
+            $val = $name === 'duedate'
+                ? ($desired ? (new \DateTime($desired))->setTimezone(new \DateTimeZone($cfg->getTimezone($req->staff)))->format('Y-m-d H:i:s') : '')
+                : ($desired ?: '');
+            return ['noop' => $noop, 'field' => $field, 'value' => $val, 'name' => $name];
+        }
+        // Dynamic form field
+        $field = self::dynamicField($t, $name);
+        if (!$field->isEditableToStaff())
+            throw new ApiError('forbidden', "Field '$name' cannot be edited");
+        if (is_array($value) || is_object($value))
+            throw ApiError::validation("'value' must be a scalar or null", 'value');
+        $ans = $field->getAnswer();
+        $curText = $ans ? trim((string) $ans->toString()) : '';
+        $raw = $ans ? $ans->getValue() : null;
+        $curRaw = is_scalar($raw) ? (string) $raw : null;
+        $ds = $value === null ? '' : (is_bool($value) ? ($value ? '1' : '0') : trim((string) $value));
+        $bs = $base === null ? '' : (is_bool($base) ? ($base ? '1' : '0') : trim((string) $base));
+        $isNow = function ($x) use ($curText, $curRaw) { return Ticketing::same($curText, $x) || ($curRaw !== null && Ticketing::same($curRaw, $x)); };
+        $noop = $isNow($ds);
+        if (!$noop && !$isNow($bs))
+            throw new ApiError('conflict', 'The value changed on the server since you read it', null,
+                ['current' => $curText, 'base' => $base, 'last_change' => Ticketing::lastChange($t, 'field')]);
+        return ['noop' => $noop, 'field' => $field, 'value' => $ds, 'name' => $name];
+    }
+
+    /** Builds and validates the field's edit form (no side effects). */
+    private static function editForm(array $plan, $comment) {
+        $field = $plan['field'];
         // The edit form reads the value by the field's own form names (hash / name / id): provide all of them.
-        $val = $name === 'duedate'
-            ? ($desired ? (new \DateTime($desired))->setTimezone(new \DateTimeZone($cfg->getTimezone($req->staff)))->format('Y-m-d H:i:s') : '')
-            : ($desired ?: '');
-        $src = ['comments' => (string) ($b['comment'] ?? '')];
+        $src = ['comments' => $comment];
         foreach (array_filter([$field->getFormName(), $field->get('name'), $field->get('id'), 'field']) as $k)
-            $src[$k] = $val;
+            $src[$k] = $plan['value'];
         $form = $field->getEditForm($src);
         if (!$form->isValid())
             throw ApiError::fromErrors(Ticketing::formErrors($form), 'Invalid value');
+        return $form;
+    }
+
+    private static function commitForm(\Ticket $t, $form) {
         $errors = [];
-        $before = Threading::snapshot($t);
-        if (!$t->updateField($form, $errors))
+        if (!$t->updateField($form, $errors)) {
+            if (isset($errors['field']) && stripos((string) $errors['field'], 'already') !== false) return false;   // core: no change
             Ticketing::fail($errors, 'The field could not be updated');
-        return Res::ok(self::result(\Ticket::lookup((int) $t->getId()), $before));
+        }
+        return true;
+    }
+
+    private static function commitField(\Ticket $t, array $plan, $comment) {
+        return self::commitForm($t, self::editForm($plan, $comment));
+    }
+
+    /** A dynamic field of the ticket by numeric id or by name (the special fields are not dynamic). */
+    private static function dynamicField(\Ticket $t, $key) {
+        foreach (\DynamicFormEntry::forTicket($t->getId()) as $entry) {
+            $entry->addMissingFields();   // fields added to the form after the ticket was created (the SCP does the same on edit)
+            foreach ($entry->getFields() as $f) {
+                if ($f->get('name') === 'priority') continue;
+                if ((ctype_digit((string) $key) && (int) $f->get('id') === (int) $key) || (!ctype_digit((string) $key) && $f->get('name') === $key)) {
+                    // A field added to the form after the ticket was created may have no stored answer (addMissingFields
+                    // skips empty ones); updateField needs one to save into.
+                    if (!$f->getAnswer() && $f->isStorable() && !$f->isPresentationOnly()) {
+                        $a = new \DynamicFormEntryAnswer(['field_id' => $f->get('id'), 'entry' => $entry]);
+                        $entry->answers->add($a);
+                        $a->save();
+                        $f->setAnswer($a);
+                    }
+                    return $f;
+                }
+            }
+        }
+        throw new ApiError('not_found', "Field '$key' not found on this ticket", null, ['allowed_special' => self::FIELDS]);
     }
 
     /** PUT /tickets/{id}/owner {user_id, base} */

@@ -14,6 +14,7 @@ final class Ticketing {
         'owner'    => ['edited'],
         'answered' => ['edited'],
         'task_state' => ['closed', 'reopened', 'created'],
+        'task_field' => ['edited', 'created'],
     ];
 
     // ------------------------------------------------------------------

@@ -31,6 +31,7 @@ final class Tasks {
             ['POST', "$t/status",                 'status',       ['policy' => 'task.view']],
             ['POST', "$t/assignment",             'assign',       ['policy' => 'task.assign']],
             ['POST', "$t/transfer",               'transfer',     ['policy' => 'task.transfer']],
+            ['PUT',  $t,                          'update',       ['policy' => 'task.edit']],
         ];
     }
 
@@ -271,6 +272,96 @@ final class Tasks {
         if (!$t->transfer($form, $errors, Threading::boolInput($req, 'alert', false)))
             Ticketing::fail($errors, 'The transfer was refused');
         return Res::ok(['applied' => true, 'task' => self::dto(\Task::lookup((int) $t->getId()))]);
+    }
+
+    /**
+     * PUT /tasks/{id} {title?, due_at?, fields?:{name:scalar}, base:{same keys}, comment?}
+     * Edits the task's own fields with per-field base values (validated as a whole before anything is applied).
+     * The description is the first entry of the thread (an edit would create another entry): post a note instead.
+     */
+    static function update(Request $req) {
+        $t = $req->ctx['task'];
+        $b = $req->json();
+        $want = [];
+        foreach (['title', 'due_at'] as $k) if (array_key_exists($k, $b)) $want[$k] = $b[$k];
+        if (isset($b['fields'])) {
+            if (!is_array($b['fields']) || array_values($b['fields']) === $b['fields']) throw ApiError::validation("'fields' must be an object", 'fields');
+            foreach ($b['fields'] as $k => $v) $want[(string) $k] = $v;
+        }
+        if (!$want) throw ApiError::validation('Nothing to update: send title, due_at or fields');
+        if (!isset($b['base']) || !is_array($b['base'])) throw ApiError::validation("'base' is required: the current value of every field you change", 'base');
+        $comment = (string) ($b['comment'] ?? '');
+        global $cfg;
+
+        $plans = []; $conflicts = [];
+        foreach ($want as $key => $value) {
+            if (!array_key_exists($key, $b['base'])) throw ApiError::validation("'base.$key' is required", "base.$key");
+            $base = $b['base'][$key];
+            if ($key === 'due_at') {
+                $cur = Time::iso(Store::row('SELECT duedate FROM ' . TASK_TABLE . ' WHERE id=' . (int) $t->getId())['duedate'] ?? null);
+                $desired = $value === null ? null : Time::iso(Time::toDb((string) $value));
+                if ($value !== null && !$desired) throw ApiError::validation('Invalid ISO-8601 date', 'due_at');
+                $bs = $base === null ? null : Time::iso(Time::toDb((string) $base));
+                if (Ticketing::same($cur, $desired)) { $plans[$key] = ['noop' => true]; continue; }
+                if (!Ticketing::same($cur, $bs)) { $conflicts[$key] = $cur; continue; }
+                $field = $t->getField('duedate');
+                $val = $desired ? (new \DateTime($desired))->setTimezone(new \DateTimeZone($cfg->getTimezone($req->staff)))->format('Y-m-d H:i:s') : '';
+                $plans[$key] = ['noop' => false, 'field' => $field, 'value' => $val];
+                continue;
+            }
+            if (is_array($value) || is_object($value)) throw ApiError::validation("'$key' must be a scalar", $key);
+            $field = self::dynamicField($t, $key);
+            if (!$field->isEditableToStaff()) throw new ApiError('forbidden', "Field '$key' cannot be edited");
+            $ans = $field->getAnswer();
+            $curText = $ans ? trim((string) $ans->toString()) : '';
+            $ds = $value === null ? '' : (is_bool($value) ? ($value ? '1' : '0') : trim((string) $value));
+            $bs = $base === null ? '' : (is_bool($base) ? ($base ? '1' : '0') : trim((string) $base));
+            if (Ticketing::same($curText, $ds)) { $plans[$key] = ['noop' => true]; continue; }
+            if (!Ticketing::same($curText, $bs)) { $conflicts[$key] = $curText; continue; }
+            $plans[$key] = ['noop' => false, 'field' => $field, 'value' => $ds];
+        }
+        if ($conflicts)
+            throw new ApiError('conflict', 'One or more fields changed on the server since you read them', null,
+                ['current' => $conflicts, 'last_change' => Ticketing::lastChange($t, 'task_field')]);
+        $todo = array_filter($plans, function ($p) { return !$p['noop']; });
+        if (!$todo) return Res::ok(['applied' => false, 'changed' => [], 'task' => self::dto($t)]);
+
+        $forms = []; $first = true;
+        foreach ($todo as $key => $p) {
+            $src = ['comments' => $first ? $comment : ''];
+            foreach (array_filter([$p['field']->getFormName(), $p['field']->get('name'), $p['field']->get('id'), 'field']) as $k) $src[$k] = $p['value'];
+            $form = $p['field']->getEditForm($src);
+            if (!$form->isValid())
+                throw ApiError::fromErrors(Ticketing::formErrors($form), 'Invalid value');
+            $forms[$key] = $form; $first = false;
+        }
+        $done = [];
+        foreach ($forms as $key => $form) {
+            $errors = [];
+            if (!$t->updateField($form, $errors)) {
+                if (isset($errors['field']) && stripos((string) $errors['field'], 'already') !== false) continue;
+                throw new ApiError('validation_failed', (string) ($errors['field'] ?? $errors['err'] ?? 'The task could not be updated'), $key,
+                    ['failed_field' => $key, 'applied_before_failure' => $done]);
+            }
+            $done[] = $key;
+        }
+        return Res::ok(['applied' => (bool) $done, 'changed' => $done, 'task' => self::dto(\Task::lookup((int) $t->getId()), true)]);
+    }
+
+    private static function dynamicField(\Task $t, $key) {
+        foreach (\DynamicFormEntry::forObject($t->getId(), 'A') as $entry) {
+            $entry->addMissingFields();
+            foreach ($entry->getFields() as $f) {
+                if ((ctype_digit((string) $key) && (int) $f->get('id') === (int) $key) || (!ctype_digit((string) $key) && $f->get('name') === $key)) {
+                    if (!$f->getAnswer() && $f->isStorable() && !$f->isPresentationOnly()) {
+                        $a = new \DynamicFormEntryAnswer(['field_id' => $f->get('id'), 'entry' => $entry]);
+                        $entry->answers->add($a); $a->save(); $f->setAnswer($a);
+                    }
+                    return $f;
+                }
+            }
+        }
+        throw new ApiError('not_found', "Field '$key' not found on this task");
     }
 
     // ------------------------------------------------------------------

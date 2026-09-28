@@ -116,6 +116,52 @@ final class Threading {
     }
 
     // ------------------------------------------------------------------
+    // CC handling for replies (mirrors scp/tickets.php:200-218)
+    // ------------------------------------------------------------------
+
+    /**
+     * Validate `cc`: null = leave the collaborators as they are; a list of contact user ids = the reply is
+     * copied to exactly those (new ones become collaborators, the others are set inactive, like the SCP).
+     * @return int[]|null
+     */
+    static function ccFromRequest(Request $req) {
+        $cc = $req->input('cc');
+        if ($cc === null) return null;
+        if (!is_array($cc) || array_values($cc) !== $cc)
+            throw ApiError::validation("'cc' must be a list of contact user ids", 'cc');
+        $ids = [];
+        foreach ($cc as $v) {
+            if (!(is_int($v) || (is_string($v) && ctype_digit($v))) || !\User::lookup((int) $v))
+                throw ApiError::validation('Unknown contact in cc', 'cc');
+            $ids[(int) $v] = (int) $v;
+        }
+        return array_values($ids);
+    }
+
+    /** Applies the collaborator changes; returns {added, activated, deactivated} (contact ids). */
+    static function applyCc(\Ticket $ticket, array $ids) {
+        $eff = ['added' => [], 'activated' => [], 'deactivated' => []];
+        $errors = [];
+        $had = [];
+        foreach ($ticket->getCollaborators() as $c) $had[(int) $c->getUserId()] = true;
+        if ($ids) {
+            foreach ((array) $ticket->addCollaborators($ids, ['isactive' => 1], $errors) as $c)
+                $eff['added'][] = (int) $c->getUserId();
+        }
+        foreach ($ticket->getCollaborators() as $c) {
+            $uid = (int) $c->getUserId();
+            if (!$c->isActive() && in_array($uid, $ids, true)) {
+                $c->setFlag(\Collaborator::FLAG_ACTIVE, true); $c->save(); $eff['activated'][] = $uid;
+            } elseif ($c->isActive() && !in_array($uid, $ids, true)) {
+                $c->setFlag(\Collaborator::FLAG_ACTIVE, false); $c->save(); $eff['deactivated'][] = $uid;
+            }
+        }
+        unset($ticket->active_collaborators);
+        $ticket->collaborators = null;
+        return $eff;
+    }
+
+    // ------------------------------------------------------------------
     // Effects snapshot
     // ------------------------------------------------------------------
 

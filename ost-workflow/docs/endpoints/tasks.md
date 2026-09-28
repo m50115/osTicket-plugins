@@ -14,6 +14,6 @@ DTO `{id, number, title, state: open|closed, dept, assignee{type,id,name,token}|
 | `POST /tasks/{id}/status` | `{status: open\|closed, base, comment?}`; closing needs `task.close` and `isCloseable`, reopening `task.edit` or `task.close`. |
 | `POST /tasks/{id}/assignment` (`task.assign`) | `{assignee{type,id}, base (token), comment?, alert?}`; closed task → 409. |
 | `POST /tasks/{id}/transfer` (`task.transfer`) | `{dept_id, base, comment?, alert?}`. |
+| `PUT /tasks/{id}` (`task.edit`) | `{title?, due_at?, fields?{name:scalar}, base{same keys}, comment?}`. Per-field base values, validated as a whole before applying; `due_at` ISO-8601 or `null`. Response `{applied, changed[], task}`. The description is the first thread entry (an edit would create another one): post a note instead. |
 
-Not implemented: `PUT /tasks/{id}` (edit title/description/due date — deferred, `Task::update` needs the whole form).
-Verified: create with assignee + due date (UTC round trip), list/detail/thread, notes/replies, assign conflict → assign, transfer, close → noop → reopen, `agent2` denied `task.close`.
+Verified: edit title/due date/clear due date (base, no-op, stale, missing base, `agent2` 403), create with assignee + due date (UTC round trip), list/detail/thread, notes/replies, assign conflict → assign, transfer, close → noop → reopen, `agent2` denied `task.close`.

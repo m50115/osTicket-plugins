@@ -1,12 +1,12 @@
 # Referencia de la API
 
-Índice de las **91 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin. El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
+Índice de las **93 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin. El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
 
 La columna **Permiso** es el nombre de la política que el plugin aplica *antes* del handler (réplica de la matriz del panel de agentes de osTicket): `auth` = cualquier agente activo; `ticket.<x>` / `task.<x>` = permiso de rol en el departamento del objeto; `global.<x>` = permiso global del agente; `anydept.<x>` = permiso en al menos un departamento.
 
 ## Sesión y agente
 
-Detalle: [Convenciones](Convenciones.md)
+Detalle: [Convenciones.md](Convenciones.md)
 
 | Método | Ruta | Permiso |
 |---|---|---|
@@ -66,6 +66,7 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 | `POST` | `/workflow/v1/tickets/{id}/transfer` | `ticket.transfer` |
 | `POST` | `/workflow/v1/tickets/{id}/referrals` | `ticket.assign` |
 | `PATCH` | `/workflow/v1/tickets/{id}/fields/{name}` | `ticket.edit` |
+| `PUT` | `/workflow/v1/tickets/{id}/forms` | `ticket.edit` |
 | `PUT` | `/workflow/v1/tickets/{id}/owner` | `ticket.edit` |
 | `POST` | `/workflow/v1/tickets/{id}/answered` | `ticket.markanswered` |
 
@@ -130,6 +131,7 @@ Detalle: [tasks.md](../endpoints/tasks.md)
 | `POST` | `/workflow/v1/tasks/{id}/status` | `task.view` |
 | `POST` | `/workflow/v1/tasks/{id}/assignment` | `task.assign` |
 | `POST` | `/workflow/v1/tasks/{id}/transfer` | `task.transfer` |
+| `PUT` | `/workflow/v1/tasks/{id}` | `task.edit` |
 
 ## Sincronización e informes
 

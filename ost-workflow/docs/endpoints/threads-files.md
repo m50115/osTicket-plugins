@@ -41,11 +41,12 @@ Body (JSON):
 | `body` | required string ≤ 60000 chars |
 | `body_format` | `text` (default: escaped, newlines kept) \| `html` (sanitized by osTicket) |
 | `notify` | **required**: `all` \| `user` \| `none` (osTicket's `reply-to`; fixes legacy B-3). `none` sends no email |
+| `cc` | optional list of contact user ids. **Omitted = collaborators untouched** (the reply reaches the owner and the active collaborators). Provided = the reply is copied to exactly those contacts, like the SCP checkboxes: unknown ids → 422; new contacts become collaborators; collaborators not listed are set **inactive** (persistent; `[]` = nobody in copy). `effects.collaborators` reports `{added, activated, deactivated}`. Applied even with `notify:"none"`. |
 | `claim` | optional boolean, default `false`. `true` still obeys the core's `autoClaimTickets` setting and the department's `disableAutoClaim`; the response says what happened |
 | `signature` | `none` (default) \| `mine` \| `dept` |
 | `file_ids` | optional `[int]`, ≤ `max_files_per_note` (default 5); each must have been uploaded by this agent (`POST /files`) |
 | `status_id` | optional status to apply after the reply; same permission rule as `/status` (below) |
-Extra checks the SCP controller does and the core does not: merged child ticket → 409 `conflict` `{reason:"merged_child"}`; banned contact email → 409 `conflict` `{reason:"email_banned"}`. `ccs` is always empty: collaborators are managed by the collaborators endpoints; `notify:"all"` reaches the owner + active collaborators like the SCP. Client IP recorded on the entry is the real IP (`RateLimit::ip`, trusted proxies only), not the balancer's.
+Extra checks the SCP controller does and the core does not: merged child ticket → 409 `conflict` `{reason:"merged_child"}`; banned contact email → 409 `conflict` `{reason:"email_banned"}`. `notify:"all"` reaches the owner + active collaborators like the SCP. Client IP recorded on the entry is the real IP (`RateLimit::ip`, trusted proxies only), not the balancer's.
 Response 201: `{entry, effects:{status_changed, status:{id,name,state,previous_id}|null, assignee_changed, assignee:{type,id,name}|null, notify, claim_requested, claimed}}`. Effects are computed from a before/after read of the ticket row (status, staff, team).
 Errors: 401, 403 (`ticket.reply` or ticket access), 404, 409 `conflict`, 422 (`notify`, `body`, `file_ids`, `status_id`, …), 403 `forbidden` for status rule, 409 `not_closeable`, 500 if an attachment ends up missing (never a success with fewer attachments).
 Side effects: email to recipients (unless `none`), status/assignee changes, `answered` flag, `object.created` signal, ThreadEntry rows, attachment rows. Not idempotent in the core: retry safety is the plugin's `Idempotency-Key` (same key + same body → the stored response with `Idempotent-Replayed: true`; different body → 422 `idempotency_key_reused`).
@@ -79,6 +80,5 @@ Thumbnails: `?s=<16..2048>` for images (GD): PNG, longest side = `s` (never upsc
 
 ## Gaps / notes
 - Mail delivery is not testable in the sandbox (no MTA): `notify` effects on `recipients`/`reply_scope` are verified, actual email is not.
-- `cc` on replies is not exposed (see above).
 - Task thread equivalents (`/tasks/{id}/notes|replies`) belong to the tasks handler; `Attachments::resolve/forCreate/attachAll` and `Threading::entry` are reusable for it.
 - Core quirks handled: `Format::safe_html` drops text after a decoded `<` (bodies are escaped so `1 < 2` survives); `Format::html2text` decodes before stripping tags (own `htmlToText`); `TextThreadEntryBody` truncates at `<` (never used); `AttachmentFile::create` dedupes file rows (per-upload name preserved on the attachment); `->created` of a just-created row is an `SqlFunction` (read back).
