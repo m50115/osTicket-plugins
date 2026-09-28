@@ -133,12 +133,12 @@ final class Matching {
         if (($marker = $req->q('marker')) !== null) {
             if (!preg_match('/^wf:[A-Za-z0-9-]{8,37}$/', (string) $marker))
                 throw ApiError::validation("'marker' must look like wf:<uuid>", 'marker');
-            $t = $vis->filter(['source_extra' => (string) $marker])->one();
+            $t = $vis->filter(['source_extra' => (string) $marker])->first();
             return Res::ok($t ? ['classification' => 'safe', 'matches' => [['reason' => 'marker', 'ticket' => Ticketing::summary($t)]]]
                              : ['classification' => 'none', 'matches' => []]);
         }
         if (($number = $req->q('number')) !== null) {
-            $t = $vis->filter(['number' => (string) $number])->one();
+            $t = $vis->filter(['number' => (string) $number])->first();
             return Res::ok($t ? ['classification' => 'safe', 'matches' => [['reason' => 'server_number', 'ticket' => Ticketing::summary($t)]]]
                              : ['classification' => 'none', 'matches' => []]);
         }

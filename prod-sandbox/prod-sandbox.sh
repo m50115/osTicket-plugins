@@ -93,6 +93,10 @@ start() {
   mkdir -p "$PROD_HOME/tmp"/{body,proxy,fcgi,uwsgi,scgi}
   "$FPM" -y "$PROD_HOME/php80/etc/php-fpm.conf" -c "$PROD_HOME/php80/etc/php.ini"
   "$NGINX" -c "$CONF/nginx.conf" -p "$PROD_HOME/nginx"
+  # Outgoing mail capture (SMTP :1025, UI http://127.0.0.1:8025); osTicket's SMTP account must point to it.
+  if [ -x "$PROD_HOME/mailpit/mailpit" ] && ! curl -s -o /dev/null http://127.0.0.1:8025/api/v1/info; then
+    (nohup "$PROD_HOME/mailpit/mailpit" --smtp 127.0.0.1:1025 --listen 127.0.0.1:8025 > "$LOGS/mailpit.log" 2>&1 &)
+  fi
   echo "started ($variant): front http://127.0.0.1:8090  origin http://127.0.0.1:8091  $($PHP -r 'echo PHP_VERSION;')"
 }
 stop() {
