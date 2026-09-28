@@ -24,6 +24,7 @@ gen_conf() {
   sed -e "s#root /var/www/html;#root $APP;#" -e "s#fastcgi_pass   127.0.0.1:9000;#fastcgi_pass   127.0.0.1:9080;#" \
       "$CORE_REPO/docker/default.conf" > "$CONF/origin.conf"
   sed -i '' 's#listen 80;#listen 8091;#' "$CONF/origin.conf"
+  cp "$PROD_HOME/nginx/conf/fastcgi_params" "$CONF/fastcgi_params"
   if [ "$variant" = "proposed" ]; then
     # PC-W1: route /api/workflow to http.php exactly like /api/mobile. PC-W2: explicit body limit.
     python3 - "$CONF/origin.conf" <<'PY'
@@ -48,6 +49,7 @@ http {
   # ELB-like front: terminates the client connection and appends X-Forwarded-For.
   server {
     listen 8090;
+    client_max_body_size 0;   # an ALB does not limit request bodies
     location / {
       proxy_pass http://127.0.0.1:8091;
       proxy_set_header Host \$http_host;
