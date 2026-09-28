@@ -37,6 +37,10 @@ final class Tickets {
             ['GET',    "$id/fields",                  'fields',   ['policy' => 'ticket.view']],
             ['GET',    "$id/related",                 'related',  ['policy' => 'ticket.view']],
             ['GET',    "$id/collaborators",           'collaborators', ['policy' => 'ticket.view']],
+            ['GET',    "$id/actions",                 'actions',  ['policy' => 'ticket.view']],
+            ['GET',    "$id/targets",                 'targets',  ['policy' => 'ticket.view']],
+            ['PATCH',  "$id/collaborators/(?P<uid>\d+)", 'setCollaborator',    ['policy' => 'ticket.edit']],
+            ['DELETE', "$id/collaborators/(?P<uid>\d+)", 'removeCollaborator', ['policy' => 'ticket.edit']],
             ['POST',   "$id/collaborators",           'addCollaborator', ['policy' => 'ticket.edit']],
             ['POST',   "$id/status",                  'status',   ['policy' => 'ticket.view']],
             ['POST',   "$id/assignment",              'assign',   ['policy' => 'ticket.assign']],
@@ -125,6 +129,7 @@ final class Tickets {
         $rows = array_slice($rows, 0, $limit);
 
         $raw = Ticketing::rows(array_map(function ($t) { return $t->getId(); }, $rows));
+        Ticketing::prime(array_keys($raw));
         $items = [];
         foreach ($rows as $t)
             $items[] = Ticketing::summary($t, $raw[(int) $t->getId()] ?? []);
@@ -153,6 +158,7 @@ final class Tickets {
         $more = count($rows) > $limit;
         $rows = array_slice($rows, 0, $limit);
         $raw = Ticketing::rows(array_map(function ($t) { return $t->getId(); }, $rows));
+        Ticketing::prime(array_keys($raw));
         $items = [];
         foreach ($rows as $t)
             $items[] = Ticketing::summary($t, $raw[(int) $t->getId()] ?? []);
@@ -161,7 +167,7 @@ final class Tickets {
     }
 
     static function detail(Request $req) {
-        return Res::ok(Ticketing::detail($req->ctx['ticket']));
+        return Res::ok(Ticketing::detail($req->ctx['ticket'], $req->staff));
     }
 
     static function missing(Request $req) {
@@ -174,15 +180,72 @@ final class Tickets {
         return Res::ok(['closeable' => $c === true, 'reason' => $c === true ? null : (string) $c, 'missing_fields' => $fields]);
     }
 
+    /**
+     * Everyone involved: owner, collaborators (active flag), assignee (agent/team), department, referrals and the
+     * last agent who replied. `type` tells what `id` is (contact|agent|team|dept).
+     */
     static function participants(Request $req) {
         $t = $req->ctx['ticket'];
         $out = [];
         if (($o = $t->getOwner()))
-            $out[] = ['role' => 'owner', 'user_id' => (int) $o->getId(), 'name' => (string) $o->getName(), 'email' => (string) $o->getEmail(), 'is_active' => true];
+            $out[] = ['role' => 'owner', 'type' => 'contact', 'id' => (int) $o->getId(), 'user_id' => (int) $o->getId(), 'name' => (string) $o->getName(), 'email' => (string) $o->getEmail(), 'is_active' => true];
         foreach ($t->getCollaborators() as $c)
-            $out[] = ['role' => 'collaborator', 'user_id' => (int) $c->getUserId(), 'name' => (string) $c->getName(),
-                      'email' => (string) $c->getEmail(), 'is_active' => (bool) $c->isActive()];
+            $out[] = ['role' => 'collaborator', 'type' => 'contact', 'id' => (int) $c->getUserId(), 'user_id' => (int) $c->getUserId(),
+                      'name' => (string) $c->getName(), 'email' => (string) $c->getEmail(), 'is_active' => (bool) $c->isActive()];
+        if (($a = Ticketing::assignee($t)))
+            $out[] = ['role' => 'assignee', 'type' => $a['type'] === 'staff' ? 'agent' : 'team', 'id' => $a['id'], 'name' => $a['name']];
+        if (($d = $t->getDept()))
+            $out[] = ['role' => 'department', 'type' => 'dept', 'id' => (int) $d->getId(), 'name' => (string) $d->getName()];
+        foreach ($t->getThread()->getReferrals() as $r) {
+            $obj = $r->getObject();
+            $type = ['S' => 'agent', 'E' => 'team', 'D' => 'dept'][$r->object_type] ?? null;
+            if ($obj && $type) $out[] = ['role' => 'referral', 'type' => $type, 'id' => (int) $r->object_id, 'name' => (string) $r->getName()];
+        }
+        if (($lr = $t->getLastRespondent()))
+            $out[] = ['role' => 'last_respondent', 'type' => 'agent', 'id' => (int) $lr->getId(), 'name' => $lr->getName()->getOriginal()];
         return Res::ok($out);
+    }
+
+    /** GET /tickets/{id}/actions — what the caller can do with this ticket, and why not. */
+    static function actions(Request $req) {
+        $t = $req->ctx['ticket'];
+        return Res::ok(['ticket_id' => (int) $t->getId(), 'actions' => Ticketing::actions($t, $req->staff)]);
+    }
+
+    /** GET /tickets/{id}/targets — assignment and referral destinations with `available` and the reason. */
+    static function targets(Request $req) {
+        $t = $req->ctx['ticket'];
+        $can = Ticketing::actions($t, $req->staff);
+        return Res::ok(Ticketing::targets($t, $req->staff), ['caller_can_assign' => $can['assign']['allowed'], 'caller_can_refer' => $can['refer']['allowed']]);
+    }
+
+    /** PATCH /tickets/{id}/collaborators/{uid} {active: bool, base: bool} — toggle the copy flag. */
+    static function setCollaborator(Request $req) {
+        $t = $req->ctx['ticket'];
+        $b = $req->json();
+        if (!isset($b['active']) || !is_bool($b['active'])) throw ApiError::validation("'active' must be true or false", 'active');
+        $base = Ticketing::requireBase($req);
+        if (!is_bool($base)) throw ApiError::validation("'base' must be true or false", 'base');
+        $c = $t->getCollaborators()->findFirst(['user_id' => $req->intParam('uid')]);
+        if (!$c) throw ApiError::notFound('collaborator');
+        $cur = (bool) $c->isActive();
+        if ($cur === $b['active']) return Res::ok(['applied' => false, 'user_id' => (int) $c->getUserId(), 'is_active' => $cur]);
+        if ($cur !== $base)
+            throw new ApiError('conflict', 'The collaborator changed on the server since you read it', null, ['current' => $cur, 'base' => $base]);
+        $c->setFlag(\Collaborator::FLAG_ACTIVE, $b['active']);
+        $c->save();
+        return Res::ok(['applied' => true, 'user_id' => (int) $c->getUserId(), 'is_active' => (bool) $b['active']]);
+    }
+
+    /** DELETE /tickets/{id}/collaborators/{uid} — remove the collaborator (idempotent). */
+    static function removeCollaborator(Request $req) {
+        $t = $req->ctx['ticket'];
+        $c = $t->getCollaborators()->findFirst(['user_id' => $req->intParam('uid')]);
+        if (!$c) return Res::ok(['applied' => false, 'user_id' => $req->intParam('uid')]);
+        $label = (string) $c;
+        if (!$c->delete()) throw new ApiError('internal_error', 'The collaborator could not be removed');
+        $t->logEvent('collab', ['del' => [$label]]);
+        return Res::ok(['applied' => true, 'user_id' => $req->intParam('uid')]);
     }
 
     /** GET /tickets/{id}/recipients?reply_to=all|user|collabs — who a reply with that scope reaches. */
@@ -325,7 +388,7 @@ final class Tickets {
         // Durable marker: lets a retry after a crash adopt this ticket instead of duplicating (§I).
         Store::q('UPDATE ' . TICKET_TABLE . ' SET source_extra=' . Store::esc(Idempotency::marker($req->idemKey))
             . ' WHERE ticket_id=' . (int) $ticket->getId());
-        return Res::created(Ticketing::detail(\Ticket::lookup((int) $ticket->getId())));
+        return Res::created(Ticketing::detail(\Ticket::lookup((int) $ticket->getId()), $staff));
     }
 
     /** POST /tickets/{id}/collaborators {user_id | email+name, cc?} */
@@ -722,9 +785,16 @@ final class Tickets {
     // helpers
     // ==================================================================
 
+    /** After a transfer/assign/refer/release the ticket may have left the caller's queues: tell the app why. */
+    private static function visibleToCaller(\Ticket $t) {
+        global $thisstaff;
+        return $thisstaff ? (bool) $t->checkStaffPerm($thisstaff) : true;
+    }
+
     private static function result(\Ticket $t, array $before) {
         $t = \Ticket::lookup((int) $t->getId());
         return ['applied' => true, 'ticket' => Ticketing::summary($t),
+                'visible_to_caller' => self::visibleToCaller($t),
                 'effects' => Threading::effects($before, Threading::snapshot($t))];
     }
 

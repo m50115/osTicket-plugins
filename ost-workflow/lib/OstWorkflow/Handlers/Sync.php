@@ -78,6 +78,7 @@ final class Sync {
 
         $out = self::components(array_keys($items));
         $raw = Ticketing::rows(array_keys($items));
+        Ticketing::prime(array_keys($items));
         $data = [];
         foreach ($items as $id => $t) {
             $c = $out[$id] ?? ['entry' => 0, 'event' => 0, 'form' => null];
