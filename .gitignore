@@ -27,3 +27,7 @@ composer.json
 
 # build artifacts of prod-sandbox
 prod-sandbox/dist/
+
+# local credentials of the e2e fixtures must never be committed
+prod-sandbox/*.env
+prod-sandbox/e2e-fixtures/

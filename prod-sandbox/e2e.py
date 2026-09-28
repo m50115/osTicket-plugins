@@ -5,8 +5,11 @@ End-to-end regression suite for ost-workflow (HTTP, against a running sandbox).
   python3 e2e.py [BASE]           default BASE = http://127.0.0.1:8090/api/workflow/v1
   env: SB_ADMIN_USER / SB_ADMIN_PASS (default: read from ~/development/ost-sandbox/credentials.env)
        AGENT2_USER / AGENT2_PASS  (a Limited-Access agent; if missing, the permission checks are skipped)
-       AGENT3_USER / AGENT3_PASS  (a non-admin, non-manager agent with ticket.edit, e.g. Expanded Access in dept 1; or SCR/agent3.env;
+       AGENT3_USER / AGENT3_PASS  (a non-admin, non-manager agent with ticket.edit, e.g. Expanded Access in dept 1;
                                    if missing, the department-manager SLA checks are skipped)
+       SCR   directory with agent2.env / agent3.env (and optionally sql.sh); default ~/development/ost-sandbox/e2e-fixtures.
+             Build them with create-agent.php: see E2E-Fixtures.md (nothing secret is versioned).
+       E2E_STRICT=1   any skip except the known one ("agent2 actions") counts as a FAILURE (use it to verify a rebuilt fixture)
 
 Each run creates its own data (unique emails/subjects); nothing is deleted afterwards.
 Covers the regression chains RC-* of the Technical Notes: routing, auth/tokens, idempotency and crash recovery,
@@ -33,9 +36,11 @@ def load_env(path):
 
 ENV = load_env("~/development/ost-sandbox/credentials.env")
 ADMIN = (os.environ.get("SB_ADMIN_USER") or ENV.get("SB_ADMIN_USER", "ostadmin"), os.environ.get("SB_ADMIN_PASS") or ENV.get("SB_ADMIN_PASS", ""))
+# Local, uncommitted fixture credentials (agent2.env, agent3.env; see docs/security/E2E-Fixtures.md): SCR, else the sandbox's own directory.
+SCR_DIR = os.environ.get("SCR") or os.path.expanduser("~/development/ost-sandbox/e2e-fixtures")
 A2 = (os.environ.get("AGENT2_USER"), os.environ.get("AGENT2_PASS"))
 if not A2[0]:
-    e2 = load_env(os.path.join(os.environ.get("SCR", ""), "agent2.env")) if os.environ.get("SCR") else {}
+    e2 = load_env(os.path.join(SCR_DIR, "agent2.env"))
     A2 = (e2.get("AGENT2_USER"), e2.get("AGENT2_PASS"))
 
 passed = failed = skipped = 0
@@ -51,8 +56,16 @@ def check(name, cond, detail=""):
         print("  FAIL  %s %s" % (name, detail))
 
 
+KNOWN_SKIPS = ("agent2 actions",)   # the ticket of that check is not visible to the limited agent (known, not a fixture problem)
+
+
 def skip(name, why):
-    global skipped
+    """E2E_STRICT=1 (fixture verification): any skip other than the known one is a FAILURE, so a half-built fixture cannot pass silently."""
+    global skipped, failed
+    if os.environ.get("E2E_STRICT") and name not in KNOWN_SKIPS:
+        failed += 1
+        print("  FAIL  %s (unexpected skip under E2E_STRICT: %s)" % (name, why))
+        return
     skipped += 1
     print("  skip  %s (%s)" % (name, why))
 
@@ -117,9 +130,11 @@ def login(user, pw):
 
 
 def sql(query):
-    """Optional direct DB access (sandbox only)."""
-    script = os.path.join(os.environ.get("SCR", ""), "sql.sh")
-    if not os.environ.get("SCR") or not os.path.exists(script):
+    """Optional direct DB access (sandbox only): SCR/sql.sh if present, else the versioned prod-sandbox/sql.sh (credentials.env)."""
+    script = os.path.join(SCR_DIR, "sql.sh")
+    if not os.path.exists(script):
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sql.sh")
+    if not os.path.exists(script) or not os.path.exists(os.path.expanduser("~/development/ost-sandbox/credentials.env")):
         return None
     out = subprocess.run([script, query], capture_output=True, text=True).stdout.strip().split("\n")
     return out[1:] if len(out) > 1 else []
@@ -169,8 +184,8 @@ else:
     skip("logout all", "needs AGENT2_USER/AGENT2_PASS (it would revoke the admin's tokens)")
 TOK2 = login(*A2) if A2[0] else None
 A3 = (os.environ.get("AGENT3_USER"), os.environ.get("AGENT3_PASS"))
-if not A3[0] and os.environ.get("SCR"):
-    e3 = load_env(os.path.join(os.environ["SCR"], "agent3.env"))
+if not A3[0]:
+    e3 = load_env(os.path.join(SCR_DIR, "agent3.env"))
     A3 = (e3.get("AGENT3_USER"), e3.get("AGENT3_PASS"))
 TOK3 = login(*A3) if A3[0] else None
 
@@ -675,6 +690,21 @@ if TOK2:
     call("POST", "/tasks/%d/status" % OK_, {"status": "closed", "base": "open"}, token=TOK)
     check("agent2: a closed task of its OWN department is still readable (control)", call("GET", "/tasks/%d" % OK_, token=TOK2).status == 200 and call("GET", "/tasks/%d/thread" % OK_, token=TOK2).status == 200)
 
+    # Permanent positive controls of the same fix (D-22): the SAME operations that are denied above must keep working for the
+    # authorized department, on an OPEN task and on a CLOSED one. Without them a policy that denied everything would pass.
+    OP = call("POST", "/tickets/%d/tasks" % OT, {"title": "own open task %s" % U, "description": "own dept"}, token=TOK).data["id"]
+    b_, c_ = multipart("file", "own-task-%s.txt" % U, b"own task file " + uuid.uuid4().hex.encode())
+    OH = call("POST", "/files", token=TOK, raw=b_, ctype=c_).data
+    check("admin: a note with a file on an own-department task", call("POST", "/tasks/%d/notes" % OP, {"body": "internal", "file_ids": [OH["file_id"]]}, token=TOK).status == 201)
+    got = [call("GET", "/tasks/%d" % OP, token=TOK2).status, call("GET", "/tasks/%d/thread" % OP, token=TOK2).status, dl(OH["hash"], TOK2), dl(OH["hash"], TOK2, "range")]
+    check("agent2: an OPEN task of its own department -> detail, thread, file, Range all readable", got[:3] == [200, 200, 200] and got[3] == 206, str(got))
+    check("agent2: ... and it can write a note on it", call("POST", "/tasks/%d/notes" % OP, {"body": "agent2 note %s" % U}, token=TOK2).status == 201)
+    check("agent2: ... and it is listed", OP in [t["id"] for t in call("GET", "/tasks?state=all&limit=200", token=TOK2).data])
+    call("POST", "/tasks/%d/status" % OP, {"status": "closed", "base": "open"}, token=TOK)
+    got = [call("GET", "/tasks/%d" % OP, token=TOK2).status, call("GET", "/tasks/%d/thread" % OP, token=TOK2).status, dl(OH["hash"], TOK2), dl(OH["hash"], TOK2, "range")]
+    check("agent2: the same task once CLOSED (own department) -> detail, thread, file, Range still readable", got[:3] == [200, 200, 200] and got[3] == 206, str(got))
+    check("agent2: ... and a note can still be written on it", call("POST", "/tasks/%d/notes" % OP, {"body": "agent2 closed-task note %s" % U}, token=TOK2).status == 201)
+
     # hourly budgets: seeded so the test is deterministic, cleaned afterwards
     hour = time.strftime("%Y%m%d%H", time.gmtime())
     def seed(staff, bucket, n):
@@ -741,7 +771,7 @@ if TOK3 and sql("select 1") is not None:
     finally:
         sql("update ost_department set manager_id=0 where id=1")
 else:
-    skip("PC-S2 manager checks", "needs agent3 (AGENT3_USER/AGENT3_PASS or SCR/agent3.env) and DB access")
+    skip("PC-S2 manager checks", "needs agent3 (AGENT3_USER/AGENT3_PASS or <fixtures>/agent3.env) and DB access")
 
 # PC-S3: the e-mail address is not editable through the API
 before = call("GET", "/users/%d" % UID, token=TOK).data
@@ -800,7 +830,7 @@ if sql("select 1") is not None:
     r = call("POST", "/tickets", token=TOK, key=K3, raw=raw3)
     check("live lease -> 409 in_progress + Retry-After", r.status == 409 and r.err == "in_progress" and "Retry-After" in r.headers)
 else:
-    skip("crash recovery", "no DB access (set SCR to the scratchpad with sql.sh)")
+    skip("crash recovery", "no DB access (prod-sandbox/sql.sh needs ~/development/ost-sandbox/credentials.env)")
 
 # ------------------------------------------------------------------ login throttling
 print("\n[login throttling per user + real IP]")
