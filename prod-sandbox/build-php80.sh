@@ -14,6 +14,14 @@ fetch "https://www.php.net/distributions/php-$PHP_VER.tar.xz" "php-$PHP_VER.tar.
   || fetch "https://museum.php.net/php8/php-$PHP_VER.tar.xz" "php-$PHP_VER.tar.xz"
 fetch "https://nginx.org/download/nginx-$NGINX_VER.tar.gz" "nginx-$NGINX_VER.tar.gz"
 
+# ---- OpenSSL 1.1.1 (PHP 8.0 cannot build against OpenSSL 3.x; the production image has 1.1.1 too) ----
+fetch "https://www.openssl.org/source/old/1.1.1/openssl-1.1.1w.tar.gz" "openssl-1.1.1w.tar.gz"
+if [ ! -f "$PROD_HOME/openssl/lib/libssl.dylib" ]; then
+  [ -d openssl-1.1.1w ] || tar xf openssl-1.1.1w.tar.gz
+  ( cd openssl-1.1.1w && ./Configure darwin64-arm64-cc shared --prefix="$PROD_HOME/openssl" --openssldir="$PROD_HOME/openssl/ssl" >/dev/null 2>&1 \
+    && make -j"$(sysctl -n hw.ncpu)" >/dev/null 2>&1 && make install_sw >/dev/null 2>&1 )
+fi
+
 # ---- PHP ----
 if [ ! -x "$PROD_HOME/php80/bin/php" ]; then
   [ -d "php-$PHP_VER" ] || tar xf "php-$PHP_VER.tar.xz"
@@ -29,15 +37,16 @@ if [ ! -x "$PROD_HOME/php80/bin/php" ]; then
   export FREETYPE2_CFLAGS="-I$B/freetype/include/freetype2" FREETYPE2_LIBS="-L$B/freetype/lib -lfreetype"
   export JPEG_CFLAGS="-I$B/libjpeg-turbo/include" JPEG_LIBS="-L$B/libjpeg-turbo/lib -ljpeg"
   export WEBP_CFLAGS="-I$B/webp/include" WEBP_LIBS="-L$B/webp/lib -lwebp"
-  export OPENSSL_CFLAGS="-I$B/openssl@3/include" OPENSSL_LIBS="-L$B/openssl@3/lib -lssl -lcrypto"
+  export OPENSSL_CFLAGS="-I$PROD_HOME/openssl/include" OPENSSL_LIBS="-L$PROD_HOME/openssl/lib -lssl -lcrypto"
+  export LDFLAGS="-Wl,-rpath,$PROD_HOME/openssl/lib"
   # intl is skipped: PHP 8.0 cannot build against the ICU 78 available here (osTicket falls back gracefully).
   ./configure --prefix="$PROD_HOME/php80" --with-config-file-path="$PROD_HOME/php80/etc" \
     --with-config-file-scan-dir="$PROD_HOME/php80/etc/conf.d" \
     --enable-fpm --enable-mbstring --enable-bcmath --enable-exif --enable-opcache \
-    --with-mysqli=mysqlnd --with-pdo-mysql=mysqlnd --with-zip --with-openssl \
-    --with-curl --with-zlib --with-gettext="$B/gettext" --with-iconv \
+    --with-mysqli=mysqlnd --with-pdo-mysql=mysqlnd --with-zip --with-openssl="$PROD_HOME/openssl" \
+    --with-curl --with-zlib --with-gettext="$B/gettext" --with-iconv="$SDK/usr" \
     --enable-gd --with-jpeg --with-freetype --with-webp \
-    --without-sqlite3 --without-pdo-sqlite --disable-cgi --without-pear --disable-phpdbg 2>&1 | tail -6
+    --without-pcre-jit --without-sqlite3 --without-pdo-sqlite --disable-cgi --without-pear --disable-phpdbg 2>&1 | tail -6
   make -j"$(sysctl -n hw.ncpu)" 2>&1 | tail -5
   make install 2>&1 | tail -3
   cd "$SRC"

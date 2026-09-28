@@ -64,6 +64,7 @@ NG
 $(cat "$PROD_HOME/src/php-8.0.30/php.ini-production")
 zend_extension=opcache
 opcache.enable=1
+pcre.jit=0
 error_log=$LOGS/php-error.log
 INI
   cat > "$PROD_HOME/php80/etc/php-fpm.conf" <<FPM
