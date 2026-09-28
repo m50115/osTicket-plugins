@@ -43,6 +43,7 @@ La superficie es de **102 rutas**, cada una clasificada (impacto, reversibilidad
 * **Correo por defecto apagado:** crear ticket, notas, asignación, transferencia, referencias y tareas no envían correo salvo `notify`/`alert` explícitos (comprobado contra Mailpit, con control positivo).
 * **Descargas:** `GET /files/{hash}` aplica el mismo control de acceso completo, con `Range`, con `inline` y con miniatura; un archivo subido y aún sin adjuntar solo lo lee quien lo subió.
 * El catálogo de agentes ya no publica los nombres de usuario (login).
+* **Tareas cerradas de otro departamento (requalification, 28-sep):** el núcleo solo aplica el departamento a una tarea *abierta*; una cerrada era legible (detalle, hilo, archivo) y admitía notas de cualquier agente. Ahora `/tasks/{id}*` y los adjuntos de tareas usan la misma visibilidad que el listado (departamento, asignación o equipo), abierta o cerrada: `403` fuera de ella. Comprobado con un agente limitado contra una tarea cerrada del otro departamento (detalle, hilo, archivo, `Range`, nota y estado) y con un control positivo del propio departamento.
 
 **Riesgo residual documentado:** un identificador de contacto (`user_id`) puede usarse al crear un ticket, cambiar el dueño, añadir colaboradores o poner `cc` sin acceso al directorio (igual que el panel); cada uso deja rastro visible en el ticket y la respuesta puede mostrar el nombre y el correo de ese contacto.
 

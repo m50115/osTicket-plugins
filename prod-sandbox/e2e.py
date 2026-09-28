@@ -263,6 +263,16 @@ r = call("PATCH", "/tickets/%d/fields/priority" % TID, {"value": 3, "base": 2}, 
 check("priority change", r.status == 200 and r.data["applied"] and r.data["ticket"]["priority"]["id"] == 3)
 r = call("PATCH", "/tickets/%d/fields/priority" % TID, {"value": 4, "base": 2}, token=TOK)
 check("priority stale base -> 409", r.status == 409)
+# Same RC-14 drift as task due_at (D-22 requalification): the core stored PATCH .../duedate +1 h in DST months when MySQL
+# runs on a fixed 'CST'. The manual due date must come back identical in UTC in winter, DST and shoulder months.
+prev = call("GET", "/tickets/%d" % TID, token=TOK).data["due"]["manual"]
+for iso in ["%d-%02d-%02dT18:00:00Z" % (time.gmtime().tm_year + 1, m, d) for m, d in ((1, 15), (3, 20), (7, 15), (10, 15), (12, 15))]:
+    r = call("PATCH", "/tickets/%d/fields/duedate" % TID, {"value": iso, "base": prev}, token=TOK)
+    got = call("GET", "/tickets/%d" % TID, token=TOK).data["due"]["manual"] if r.status == 200 else None
+    check("ticket duedate UTC round trip (%s)" % iso[:7], r.status == 200 and got == iso, "%s -> %s" % (iso, got))
+    prev = got
+r = call("PATCH", "/tickets/%d/fields/duedate" % TID, {"value": None, "base": prev}, token=TOK)
+check("ticket duedate cleared with null", r.status == 200 and call("GET", "/tickets/%d" % TID, token=TOK).data["due"]["manual"] is None)
 r = call("POST", "/tickets/%d/status" % TID, {"status_id": 3, "base": 2}, token=TOK)
 check("status stale base -> 409", r.status == 409)
 r = call("POST", "/tickets/%d/status" % TID, {"status_id": 3, "base": 1, "comment": "e2e"}, token=TOK)
@@ -432,7 +442,7 @@ qs = call("GET", "/queues?counts=1", token=TOK)
 check("queues: the agent's saved queues with counts", qs.status == 200 and len(qs.data) > 0 and all("count" in q for q in qs.data))
 q0 = qs.data[0]
 qt = call("GET", "/queues/%d/tickets?limit=100" % q0["id"], token=TOK)
-check("queue tickets = its count (one page)", qt.status == 200 and len(qt.data) == q0["count"] and qt.meta["queue"]["id"] == q0["id"], "%s vs %s" % (len(qt.data or []), q0["count"]))
+check("queue tickets = its count (one page)", qt.status == 200 and len(qt.data) == min(q0["count"], 100) and qt.meta["queue"]["id"] == q0["id"], "%s vs %s" % (len(qt.data or []), q0["count"]))   # min(): this suite never deletes its data, so the queue outgrows one page
 check("unknown queue -> 404", call("GET", "/queues/999999/tickets", token=TOK).status == 404)
 
 rq = urllib.request.Request(BASE + "/tickets/%d/pdf?notes=1" % TID, headers={"Authorization": "Bearer " + TOK})
@@ -475,7 +485,8 @@ for iso in DUES:
     r = call("PUT", "/tasks/%d" % KD, {"due_at": iso, "base": {"due_at": prev}}, token=TOK)
     check("task due_at UTC round trip on PUT (%s)" % iso[:7], r.status == 200 and r.data["task"]["due"] == iso, r.raw[:140])
     prev = iso
-check("task due_at cleared with null", call("PUT", "/tasks/%d" % KD, {"due_at": None, "base": {"due_at": prev}}, token=TOK).data["task"]["due"] is None)
+r = call("PUT", "/tasks/%d" % KD, {"due_at": None, "base": {"due_at": prev}}, token=TOK)
+check("task due_at cleared with null", r.status == 200 and r.data["task"]["due"] is None, r.raw[:140])
 
 # ------------------------------------------------------------------ sync / reports
 print("\n[sync and reports]")
@@ -645,6 +656,24 @@ if TOK2:
     MH = call("POST", "/files", token=TOK2, raw=b_, ctype=c_).data["hash"]
     check("an unattached upload is readable by its uploader only", dl(MH, TOK2) == 200 and dl(MH, TOK) == 403 and dl(MH, TOK2, "range") == 206)
     check("a document version cannot be planted on a second ticket", call("POST", "/tickets/%d/notes" % TID, {"body": "Sales document, first version", "document": {"uuid": SDU, "version": 1}}, token=TOK).status == 409)
+
+    # D-22 requalification: the core enforces the department of a task only while it is OPEN (Task::checkStaffPerm), so a
+    # CLOSED task of another department was readable, downloadable and writable by a Limited-Access agent.
+    CT = call("POST", "/tickets/%d/tasks" % ST, {"title": "sales task %s" % U, "description": "sales only"}, token=TOK).data["id"]
+    b_, c_ = multipart("file", "sales-task-%s.txt" % U, b"sales task secret " + uuid.uuid4().hex.encode())   # unique: the core de-duplicates files by content
+    CH = call("POST", "/files", token=TOK, raw=b_, ctype=c_).data
+    check("admin: a note with a file on a task of the other department", call("POST", "/tasks/%d/notes" % CT, {"body": "internal", "file_ids": [CH["file_id"]]}, token=TOK).status == 201)
+    check("agent2: an OPEN task of another department -> 403 (detail, thread, file)", [call("GET", "/tasks/%d" % CT, token=TOK2).status, call("GET", "/tasks/%d/thread" % CT, token=TOK2).status, dl(CH["hash"], TOK2)] == [403, 403, 403])
+    check("admin closes that task", call("POST", "/tasks/%d/status" % CT, {"status": "closed", "base": "open"}, token=TOK).status == 200)
+    got = [call("GET", "/tasks/%d" % CT, token=TOK2).status, call("GET", "/tasks/%d/thread" % CT, token=TOK2).status, dl(CH["hash"], TOK2), dl(CH["hash"], TOK2, "range"),
+           call("POST", "/tasks/%d/notes" % CT, {"body": "x"}, token=TOK2).status, call("POST", "/tasks/%d/status" % CT, {"status": "open", "base": "closed"}, token=TOK2).status]
+    check("agent2: a CLOSED task of another department -> 403 (detail, thread, file, Range, note, status)", got == [403] * 6, str(got))
+    check("agent2: ... and it is not listed", CT not in [t["id"] for t in call("GET", "/tasks?state=all&limit=200", token=TOK2).data])
+    check("admin still reads the closed task and its file", call("GET", "/tasks/%d" % CT, token=TOK).status == 200 and dl(CH["hash"], TOK) in (200, 206))
+    OT = call("POST", "/tickets", {"subject": "own dept %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK2).data["id"]
+    OK_ = call("POST", "/tickets/%d/tasks" % OT, {"title": "own task %s" % U, "description": "own dept"}, token=TOK).data["id"]
+    call("POST", "/tasks/%d/status" % OK_, {"status": "closed", "base": "open"}, token=TOK)
+    check("agent2: a closed task of its OWN department is still readable (control)", call("GET", "/tasks/%d" % OK_, token=TOK2).status == 200 and call("GET", "/tasks/%d/thread" % OK_, token=TOK2).status == 200)
 
     # hourly budgets: seeded so the test is deterministic, cleaned afterwards
     hour = time.strftime("%Y%m%d%H", time.gmtime())

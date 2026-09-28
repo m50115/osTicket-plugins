@@ -779,7 +779,7 @@ final class Tickets {
             $field = $t->getField($name);
             if (!$field) throw ApiError::notFound('field');
             $val = $name === 'duedate'
-                ? ($desired ? (new \DateTime($desired))->setTimezone(new \DateTimeZone($cfg->getTimezone($req->staff)))->format('Y-m-d H:i:s') : '')
+                ? ($desired ? Time::forCore($desired, $cfg->getTimezone($req->staff)) : '')
                 : ($desired ?: '');
             return ['noop' => $noop, 'field' => $field, 'value' => $val, 'name' => $name];
         }

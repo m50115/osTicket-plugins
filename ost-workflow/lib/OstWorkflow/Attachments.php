@@ -162,7 +162,8 @@ final class Attachments {
             if (!$entry || !($entry instanceof \ThreadEntry)) continue;
             $thread = $entry->getThread();
             $obj = $thread ? $thread->getObject() : null;
-            if (($obj instanceof \Ticket || $obj instanceof \Task) && $obj->checkStaffPerm($staff)) {
+            if (($obj instanceof \Ticket || $obj instanceof \Task) && $obj->checkStaffPerm($staff)
+                    && (!($obj instanceof \Task) || Policy::canSeeTask($staff, $obj))) {
                 $name = $att->getFilename();
                 return true;
             }

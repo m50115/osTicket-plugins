@@ -6,6 +6,7 @@ Entorno tipo producción para probar `ost-workflow` sin root ni Docker: PHP 8.0.
 |---|---|
 | `build-php80.sh` | Compila OpenSSL 1.1.1w, PHP 8.0.30 y nginx (una vez; tarda unos minutos). |
 | `prod-sandbox.sh start [current\|proposed]` | `current` = nginx exactamente como en producción hoy; `proposed` = + ruta `/api/workflow` y `client_max_body_size`. También `stop`, `status`, `restart-ecs` (procesos nuevos, opcache frío), `logs`. Arranca Mailpit si existe. |
+| `forcore-check.php <app> [lib]` | Comprobación de solo lectura de `Time::forCore` (90 verificaciones): identidad cuando la zona de BD del núcleo es la correcta, y compensación exacta —también en los días de cambio de horario y con tres zonas de agente— cuando el núcleo la deduce mal (RC-14). |
 | `plugin-admin.php <app> install\|uninstall [ruta]` | Instala/desinstala el plugin con el `PluginManager` de osTicket. |
 | `smoke.sh [BASE]` | 16 comprobaciones de humo (rutas, autenticación, idempotencia, conflicto, revocación). |
 | `e2e.py [BASE]` | Suite de regresión (~225 comprobaciones) por HTTP; crea sus propios datos. Con `SCR` apuntando a un directorio con `sql.sh` también prueba la recuperación tras un corte de idempotencia y los presupuestos por hora. Incluye la sección de hardening: superficie congelada (102 rutas), decisiones PC-S1…S5, 401 sin token en todas, rutas retiradas, asignación masiva, directorio de contactos, lecturas entre departamentos (archivos con y sin `Range`, documentos, PDF) y correo por defecto (Mailpit). |

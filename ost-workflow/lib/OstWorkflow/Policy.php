@@ -64,11 +64,22 @@ final class Policy {
         $req->ctx['ticket'] = $t;
     }
 
+    /**
+     * Task visibility as the task list documents it: my departments, assigned to me, or one of my teams. The core's
+     * Task::checkStaffPerm enforces that only while the task is OPEN, so a closed task of another department was
+     * readable, downloadable and writable by any agent (D-22 requalification).
+     */
+    static function canSeeTask(\Staff $staff, \Task $t) {
+        return $staff->canAccessDept($t->getDept())
+            || $staff->getId() == $t->getStaffId()
+            || $staff->isTeamMember($t->getTeamId());
+    }
+
     static function task(Request $req, $action, $param = 'id') {
         require_once(INCLUDE_DIR . 'class.task.php');
         $t = \Task::lookup((int) $req->param($param));
         if (!$t) throw ApiError::notFound('task');
-        if (!$t->checkStaffPerm($req->staff))
+        if (!self::canSeeTask($req->staff, $t) || !$t->checkStaffPerm($req->staff))
             throw new ApiError('forbidden', 'You cannot access this task');
         if ($action !== 'view' && !$t->checkStaffPerm($req->staff, 'task.' . $action))
             throw new ApiError('forbidden', 'Missing permission: task.' . $action);
