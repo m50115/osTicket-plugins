@@ -116,6 +116,45 @@ final class Threading {
     }
 
     // ------------------------------------------------------------------
+    // Characters the database cannot store (OW-REQ-23)
+    // ------------------------------------------------------------------
+
+    private static $dropsSupplementary;
+
+    /** True when the thread body column is utf8mb3: emoji and other characters above U+FFFF are silently dropped. */
+    static function dbDropsSupplementary() {
+        if (self::$dropsSupplementary === null) {
+            $r = Store::row('SHOW FULL COLUMNS FROM ' . THREAD_ENTRY_TABLE . ' LIKE \'body\'');
+            self::$dropsSupplementary = !$r || stripos((string) ($r['Collation'] ?? 'utf8mb3'), 'utf8mb4') !== 0;
+        }
+        return self::$dropsSupplementary;
+    }
+
+    static function supplementaryCount($text) {
+        return (int) preg_match_all('/[\x{10000}-\x{10FFFF}]/u', (string) $text);
+    }
+
+    /**
+     * Before posting: `unsupported_chars` = report (default: post and say what was removed) | reject (422).
+     * @return int number of characters above U+FFFF in the input that the database would drop
+     */
+    static function charsIn(Request $req, $field = 'body') {
+        $mode = $req->input('unsupported_chars', 'report');
+        if (!in_array($mode, ['report', 'reject'], true))
+            throw ApiError::validation("'unsupported_chars' must be report or reject", 'unsupported_chars');
+        $n = self::dbDropsSupplementary() ? self::supplementaryCount($req->input($field)) : 0;
+        if ($n && $mode === 'reject')
+            throw new ApiError('validation_failed', "The text has $n character(s) the server cannot store (emoji or characters above U+FFFF)", $field,
+                ['reason' => 'unsupported_characters', 'count' => $n]);
+        return $n;
+    }
+
+    /** After posting: what the database really removed. */
+    static function sanitized($inputCount, $stored) {
+        return ['removed_chars' => $inputCount ? max(0, $inputCount - self::supplementaryCount($stored)) : 0];
+    }
+
+    // ------------------------------------------------------------------
     // Editing an internal note (mirrors TEA_EditThreadEntry, class.thread_actions.php:112-262)
     // ------------------------------------------------------------------
 
@@ -385,10 +424,17 @@ final class Threading {
         $state = \Event::getNameById($ev->event_id);
         $ev->state = $state;
         $typed = $ev->getTypedEvent();
-        $staffDesc = self::plain($typed->getDescription(\ThreadEvent::MODE_STAFF));
-        $customer = false;
-        if (in_array($state, self::CLIENT_EVENT_STATES, true))
-            $customer = self::plain($typed->getDescription(\ThreadEvent::MODE_CLIENT)) !== '';
+        // Some core events store payloads its own describer cannot read on PHP 8 (e.g. a 'collab' event with a
+        // list of names): one odd event must never make the whole activity feed fail.
+        try {
+            $staffDesc = self::plain($typed->getDescription(\ThreadEvent::MODE_STAFF));
+            $customer = false;
+            if (in_array($state, self::CLIENT_EVENT_STATES, true))
+                $customer = self::plain($typed->getDescription(\ThreadEvent::MODE_CLIENT)) !== '';
+        } catch (\Throwable $t) {
+            $staffDesc = ucfirst((string) $state);
+            $customer = false;
+        }
 
         if ($ev->uid && $ev->uid_type === 'S')
             $actor = ['type' => 'staff', 'id' => (int) $ev->uid, 'name' => self::nameOf($ev->getUserName())];

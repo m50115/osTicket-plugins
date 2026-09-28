@@ -23,6 +23,8 @@ class ApiError extends \Exception {
         'locked'                  => 409,
         'not_closeable'           => 409,
         'unsupported_type'        => 415,
+        'file_expired'            => 410,
+        'attachment_missing'      => 409,
         'too_large'               => 413,
         'payload_too_large'       => 413,
         'rate_limited'            => 429,

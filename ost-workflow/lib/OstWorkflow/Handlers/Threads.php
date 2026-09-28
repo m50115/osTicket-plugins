@@ -39,24 +39,33 @@ final class Threads {
         $limit = $req->intQuery('limit', 50, 1, 200);
         $afterEntry = $req->intQuery('after_entry', 0, 0);
         $afterEvent = $req->intQuery('after_event', 0, 0);
+        // Backward paging: newest first pages (open a long ticket on its latest entries). before_* = 0/absent -> the latest.
+        $dir = $req->q('direction', 'forward');
+        if (!in_array($dir, ['forward', 'backward'], true))
+            throw ApiError::validation("'direction' must be forward or backward", 'direction');
+        $backward = $dir === 'backward';
+        $beforeEntry = $req->intQuery('before_entry', 0, 0);
+        $beforeEvent = $req->intQuery('before_event', 0, 0);
         $ih = $req->q('include_hidden', '0');
         if (!in_array($ih, ['0', '1', 'true', 'false'], true))
             throw ApiError::validation("'include_hidden' must be 0/1/true/false", 'include_hidden');
         $includeHidden = ($ih === '1' || $ih === 'true');
 
-        $eq = \ThreadEntry::objects()
-            ->filter(['thread_id' => $thread->getId(), 'id__gt' => $afterEntry])
-            ->order_by('id')->limit($limit + 1);
+        $eq = \ThreadEntry::objects()->filter(['thread_id' => $thread->getId()]);
+        $eq = $backward
+            ? ($beforeEntry ? $eq->filter(['id__lt' => $beforeEntry]) : $eq)->order_by('-id')->limit($limit + 1)
+            : $eq->filter(['id__gt' => $afterEntry])->order_by('id')->limit($limit + 1);
         if (!$includeHidden)
             $eq = $eq->exclude(['flags__hasbit' => \ThreadEntry::FLAG_HIDDEN]);
         $entries = [];
         foreach ($eq as $e)
             $entries[] = $e;
 
-        $vq = \ThreadEvent::objects()
-            ->filter(['thread_id' => $thread->getId(), 'id__gt' => $afterEvent])
-            ->exclude(['event_id' => \Event::getIdByName('viewed')])
-            ->order_by('id')->limit($limit + 1);
+        $vq = \ThreadEvent::objects()->filter(['thread_id' => $thread->getId()])
+            ->exclude(['event_id' => \Event::getIdByName('viewed')]);
+        $vq = $backward
+            ? ($beforeEvent ? $vq->filter(['id__lt' => $beforeEvent]) : $vq)->order_by('-id')->limit($limit + 1)
+            : $vq->filter(['id__gt' => $afterEvent])->order_by('id')->limit($limit + 1);
         $events = [];
         foreach ($vq as $v)
             $events[] = $v;
@@ -65,6 +74,8 @@ final class Threads {
         $moreEvents = count($events) > $limit;
         $entries = array_slice($entries, 0, $limit);
         $events = array_slice($events, 0, $limit);
+        $minEntry = $entries ? (int) end($entries)->getId() : $beforeEntry;   // backward: last of a descending list = oldest
+        $minEvent = $events ? (int) end($events)->id : $beforeEvent;
 
         $items = [];
         $lastEntry = $afterEntry;
@@ -89,7 +100,9 @@ final class Threads {
             'count'        => count($items),
             'ticket_id'    => (int) $ticket->getId(),
             'thread_id'    => (int) $thread->getId(),
-            'next_cursor'  => ['after_entry' => $lastEntry, 'after_event' => $lastEvent],
+            'direction'    => $dir,
+            'next_cursor'  => $backward ? ['before_entry' => $minEntry, 'before_event' => $minEvent]
+                                        : ['after_entry' => $lastEntry, 'after_event' => $lastEvent],
             'has_more'     => $moreEntries || $moreEvents,
         ]);
     }
@@ -103,6 +116,7 @@ final class Threads {
         $ticket = $req->ctx['ticket'];
         $staff = $req->staff;
 
+        $chars = Threading::charsIn($req);
         $body = Threading::bodyFromRequest($req);
         $notify = $req->input('notify');
         if (!in_array($notify, ['all', 'user', 'none'], true))
@@ -149,6 +163,7 @@ final class Threads {
 
         $effects = Threading::effects($before, Threading::snapshot($ticket));
         $effects['notify'] = $notify;
+        $effects['sanitized'] = Threading::sanitized($chars, $entry->getBody());
         if ($ccEffects !== null) $effects['collaborators'] = $ccEffects;
         $effects['claim_requested'] = $claim;
         $effects['claimed'] = $effects['assignee_changed'] && ($effects['assignee']['type'] ?? null) === 'staff'
@@ -158,15 +173,16 @@ final class Threads {
 
     // ------------------------------------------------------------------
     // POST /tickets/{id}/notes — internal note (only ticket access is required, like the SCP)
-    // {body, body_format?, title?, file_ids?: [int], note_status_id?: int, alert?: bool (default true)}
+    // {body, body_format?, title?, file_ids?: [int], note_status_id?: int, alert?: bool (default false)}
     // ------------------------------------------------------------------
     static function note(Request $req) {
         $ticket = $req->ctx['ticket'];
         $staff = $req->staff;
 
+        $chars = Threading::charsIn($req);
         $body = Threading::bodyFromRequest($req);
         $title = Threading::title($req);
-        $alert = Threading::boolInput($req, 'alert', true);
+        $alert = Threading::boolInput($req, 'alert', false);
         $files = Attachments::resolve($req->input('file_ids'), $staff);
         $statusId = $req->input('note_status_id') !== null
             ? Threading::authorizeStatus($ticket, $staff, $req->input('note_status_id'), 'note_status_id') : null;
@@ -190,6 +206,7 @@ final class Threads {
 
         $effects = Threading::effects($before, Threading::snapshot($ticket));
         $effects['alert'] = $alert;
+        $effects['sanitized'] = Threading::sanitized($chars, $entry->getBody());
         return Res::created(['entry' => Threading::entry($entry), 'effects' => $effects]);
     }
 
@@ -199,9 +216,11 @@ final class Threads {
     // ------------------------------------------------------------------
     static function editNote(Request $req) {
         $ticket = $req->ctx['ticket'];
+        $chars = Threading::dbDropsSupplementary() ? Threading::charsIn($req) : 0;
         list($applied, $current, $previous) = Threading::editNote($req, $ticket, $ticket->getThreadId(), $req->intParam('entry'));
         return Res::ok(['applied' => $applied, 'entry' => Threading::entry($current),
-                        'superseded_entry_id' => $previous ? (int) $previous->getId() : null]);
+                        'superseded_entry_id' => $previous ? (int) $previous->getId() : null,
+                        'sanitized' => Threading::sanitized($chars, $current->getBody())]);
     }
 
     // ------------------------------------------------------------------

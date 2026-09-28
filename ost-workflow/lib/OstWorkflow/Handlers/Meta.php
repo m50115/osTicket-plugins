@@ -5,6 +5,7 @@ use OstWorkflow\Build;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Runtime;
+use OstWorkflow\Threading;
 use OstWorkflow\Time;
 
 /** GET /ping (public liveness) and GET /config (installation config, no secrets). */
@@ -40,6 +41,10 @@ final class Meta {
             'defaults' => [
                 'dept_id'  => ($v = Runtime::setting('default_dept_id')) ? (int) $v : null,
                 'topic_id' => ($v = Runtime::setting('default_topic_id')) ? (int) $v : null,
+            ],
+            'text' => [
+                // false when the database is utf8mb3: emoji / characters above U+FFFF are dropped (writes report `sanitized`)
+                'supplementary_characters_supported' => !Threading::dbDropsSupplementary(),
             ],
             'attachments' => [
                 'max_files'      => Runtime::intSetting('max_files_per_note', 5),

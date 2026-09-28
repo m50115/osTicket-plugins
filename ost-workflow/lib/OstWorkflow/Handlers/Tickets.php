@@ -243,8 +243,10 @@ final class Tickets {
         $c = $t->getCollaborators()->findFirst(['user_id' => $req->intParam('uid')]);
         if (!$c) return Res::ok(['applied' => false, 'user_id' => $req->intParam('uid')]);
         $label = (string) $c;
+        $uid = (int) $c->getUserId();
         if (!$c->delete()) throw new ApiError('internal_error', 'The collaborator could not be removed');
-        $t->logEvent('collab', ['del' => [$label]]);
+        // Event payload keyed by user id with a name (the shape ThreadEvent's describer reads without errors).
+        $t->logEvent('collab', ['del' => [$uid => ['name' => $label]]]);
         return Res::ok(['applied' => true, 'user_id' => $req->intParam('uid')]);
     }
 

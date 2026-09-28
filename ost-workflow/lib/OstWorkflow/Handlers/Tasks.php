@@ -191,27 +191,31 @@ final class Tasks {
 
     static function note(Request $req) {
         $task = $req->ctx['task'];
+        $chars = Threading::charsIn($req);
         $body = Threading::bodyFromRequest($req);
         $files = Attachments::resolve($req->input('file_ids'), $req->staff);
         $vars = ['note' => $body, 'title' => Threading::title($req), 'staffId' => $req->staff->getId(),
                  'files' => Attachments::forCreate($files, $req->staff), 'ip_address' => RateLimit::ip($req)];
         $errors = [];
-        $entry = $task->postNote($vars, $errors, $req->staff, Threading::boolInput($req, 'alert', true));
+        $entry = $task->postNote($vars, $errors, $req->staff, Threading::boolInput($req, 'alert', false));
         if (!$entry) throw ApiError::fromErrors($errors, 'The note could not be posted');
         Attachments::assertAttached($entry, $files);
-        return Res::created(['entry' => Threading::entry($entry)]);
+        return Res::created(['entry' => Threading::entry($entry), 'effects' => ['sanitized' => Threading::sanitized($chars, $entry->getBody())]]);
     }
 
     /** PATCH /tasks/{id}/notes/{entry} — edit an internal note of the task thread (same rules as tickets). */
     static function editNote(Request $req) {
         $task = $req->ctx['task'];
+        $chars = Threading::dbDropsSupplementary() ? Threading::charsIn($req) : 0;
         list($applied, $current, $previous) = Threading::editNote($req, $task, $task->getThreadId(), $req->intParam('entry'));
         return Res::ok(['applied' => $applied, 'entry' => Threading::entry($current),
-                        'superseded_entry_id' => $previous ? (int) $previous->getId() : null]);
+                        'superseded_entry_id' => $previous ? (int) $previous->getId() : null,
+                        'sanitized' => Threading::sanitized($chars, $current->getBody())]);
     }
 
     static function reply(Request $req) {
         $task = $req->ctx['task'];
+        $chars = Threading::charsIn($req);
         $body = Threading::bodyFromRequest($req);
         $files = Attachments::resolve($req->input('file_ids'), $req->staff);
         $vars = ['response' => $body, 'staffId' => $req->staff->getId(), 'poster' => $req->staff,
@@ -220,7 +224,7 @@ final class Tasks {
         $entry = $task->postReply($vars, $errors, Threading::boolInput($req, 'alert', false));
         if (!$entry) throw ApiError::fromErrors($errors, 'The reply could not be posted');
         Attachments::assertAttached($entry, $files);
-        return Res::created(['entry' => Threading::entry($entry)]);
+        return Res::created(['entry' => Threading::entry($entry), 'effects' => ['sanitized' => Threading::sanitized($chars, $entry->getBody())]]);
     }
 
     /** POST /tasks/{id}/status {status: open|closed, base: open|closed, comment?} */

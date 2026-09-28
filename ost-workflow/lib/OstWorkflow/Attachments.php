@@ -194,7 +194,12 @@ final class Attachments {
         $files = [];
         foreach ($ids as $id) {
             $f = $id > 0 ? \AttachmentFile::lookup($id) : null;
-            if (!$f || !Idempotency::ownsFile($staff->getId(), $id))
+            $mine = $id > 0 && Idempotency::ownsFile($staff->getId(), $id);
+            if (!$f && $mine)
+                // Uploaded by this agent but no longer there: the core deletes files that stay unattached for a day.
+                throw new ApiError('file_expired', "file $id was uploaded but expired before it was attached; upload it again", $field,
+                    ['file_id' => $id, 'retention' => 'unattached uploads are deleted after about 1 day']);
+            if (!$f || !$mine)
                 throw ApiError::validation("file $id is unknown or was not uploaded by this agent", $field, ['file_id' => $id]);
             $files[] = $f;
         }
@@ -245,6 +250,9 @@ final class Attachments {
         foreach ($files as $f)
             if (!isset($have[$f->getId()])) $missing[] = (int) $f->getId();
         if ($missing)
-            throw new \RuntimeException('attachments missing on entry ' . $entry->getId() . ': ' . implode(',', $missing));
+            // The entry exists already: say so, and how to finish the job (never a silent success with fewer files).
+            throw new ApiError('attachment_missing', 'The entry was created but some files could not be attached', 'file_ids',
+                ['entry_id' => (int) $entry->getId(), 'entry_created' => true, 'missing_file_ids' => $missing,
+                 'retry_with' => 'POST /notes/{entry}/files (or PATCH the note) with the missing file_ids']);
     }
 }
