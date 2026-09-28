@@ -1,12 +1,12 @@
 # Referencia de la API
 
-Índice de las **101 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
+Índice de las **107 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
 
 La columna **Permiso** es el nombre de la política que el plugin aplica *antes* del handler (réplica de la matriz del panel de agentes de osTicket): `auth` = cualquier agente activo; `ticket.<x>` / `task.<x>` = permiso de rol en el departamento del objeto; `global.<x>` = permiso global del agente; `anydept.<x>` = permiso en al menos un departamento.
 
 ## Sesión y agente
 
-Detalle: [Convenciones.md](Convenciones.md)
+Detalle: [me-queues-documents.md](../endpoints/me-queues-documents.md) y [Convenciones.md](Convenciones.md)
 
 | Método | Ruta | Permiso |
 |---|---|---|
@@ -17,6 +17,7 @@ Detalle: [Convenciones.md](Convenciones.md)
 | `POST` | `/workflow/v1/auth/logout` | `auth` |
 | `GET` | `/workflow/v1/me` | `auth` |
 | `GET` | `/workflow/v1/me/permissions` | `auth` |
+| `PATCH` | `/workflow/v1/me` | `auth` |
 
 ## Catálogos, formularios y respuestas predefinidas
 
@@ -47,6 +48,8 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 
 | Método | Ruta | Permiso |
 |---|---|---|
+| `GET` | `/workflow/v1/queues` | `auth` |
+| `GET` | `/workflow/v1/queues/{id}/tickets` | `auth` |
 | `GET` | `/workflow/v1/tickets` | `auth` |
 | `POST` | `/workflow/v1/tickets` | `anydept.ticket.create` |
 | `GET` | `/workflow/v1/tickets/lookup` | `auth` |
@@ -59,6 +62,7 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 | `GET` | `/workflow/v1/tickets/{id}/related` | `ticket.view` |
 | `GET` | `/workflow/v1/tickets/{id}/collaborators` | `ticket.view` |
 | `GET` | `/workflow/v1/tickets/{id}/actions` | `ticket.view` |
+| `GET` | `/workflow/v1/tickets/{id}/pdf` | `ticket.view` |
 | `GET` | `/workflow/v1/tickets/{id}/targets` | `ticket.view` |
 | `PATCH` | `/workflow/v1/tickets/{id}/collaborators/{uid}` | `ticket.edit` |
 | `DELETE` | `/workflow/v1/tickets/{id}/collaborators/{uid}` | `ticket.edit` |
@@ -76,7 +80,7 @@ Detalle: [tickets.md](../endpoints/tickets.md)
 | `PUT` | `/workflow/v1/tickets/{id}/owner` | `ticket.edit` |
 | `POST` | `/workflow/v1/tickets/{id}/answered` | `ticket.markanswered` |
 
-## Hilo y archivos
+## Hilo, archivos y documentos
 
 Detalle: [threads-files.md](../endpoints/threads-files.md)
 
@@ -87,6 +91,8 @@ Detalle: [threads-files.md](../endpoints/threads-files.md)
 | `POST` | `/workflow/v1/tickets/{id}/notes` | `ticket.view` |
 | `POST` | `/workflow/v1/tickets/{id}/notes/{entry}/files` | `ticket.view` |
 | `PATCH` | `/workflow/v1/tickets/{id}/notes/{entry}` | `ticket.view` |
+| `GET` | `/workflow/v1/documents/{uuid}` | `auth` |
+| `GET` | `/workflow/v1/tickets/{id}/documents` | `ticket.view` |
 | `POST` | `/workflow/v1/files` | `auth` |
 | `GET` | `/workflow/v1/files/{hash}` | `auth` |
 

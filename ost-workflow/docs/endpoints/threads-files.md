@@ -81,6 +81,9 @@ Core: `AttachmentFile::_getKeyAndHash($tmp, true)` (class.file.php:287) precompu
 Response 201: `{file_id, hash, name, size, type, inline:false, sha256, created}`. `sha256` is of the received bytes so the app can verify. Ownership is recorded in the plugin table (`resource_type='file'`, `Idempotency::record`): only this agent may reference `file_id` in notes/replies, and it can download the unattached file itself. The upload name is kept on the attachment when the file is later attached (even if the core reused an existing file row).
 Retry: same `Idempotency-Key` + same bytes → the same response (`Idempotent-Replayed`).
 
+### GET `/files/{hash}` (with byte ranges)
+**`Range: bytes=a-b | a- | -n`** (single range; `If-Range` with the ETag) → `206 Partial Content` + `Content-Range` (resume an interrupted download, read a PDF's tail); unsatisfiable → `416` with `Content-Range: bytes */size`. Every full response carries `Accept-Ranges: bytes`. Verified: 0-9, suffix, tail, out of range, and 2 halves reassemble to the original sha256.
+
 ### GET `/files/{hash}`
 `hash` = `[A-Za-z0-9_-]+` (`hash` field of any attachment; > 64 chars → 422, other characters do not match the route → 404 `not_found`). Bearer token, **no** core download URL (RC-7).
 ACL: uploader of the file, or an agent with access (`checkStaffPerm`) to the ticket or task owning an attachment of it (attachment `type='H'` → entry → thread → ticket|task). Unknown hash → 404; no access → 403 `forbidden`.

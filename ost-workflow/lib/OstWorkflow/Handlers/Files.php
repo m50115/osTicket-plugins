@@ -139,15 +139,39 @@ final class Files {
         // Only raster images/PDF may render inline, and only if asked; everything else is a download.
         $inlineOk = $req->q('inline') === '1'
             && (in_array($type, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'], true) || $type === 'application/pdf');
+        $size = (int) $file->getSize();
+        $head = $base + [
+            'Content-Type'        => $type,
+            'Accept-Ranges'       => 'bytes',
+            'Content-Disposition' => self::disposition($inlineOk ? 'inline' : 'attachment', $name),
+        ];
+
+        // Single byte range (resume an interrupted download, read a PDF's tail): `Range: bytes=a-b`, `a-`, `-n`.
+        $range = trim((string) $req->header('Range'));
+        $ifRange = trim((string) $req->header('If-Range'));
+        if ($range !== '' && ($ifRange === '' || $ifRange === $etag) && preg_match('/^bytes=(\d*)-(\d*)$/', $range, $m) && ($m[1] !== '' || $m[2] !== '')) {
+            if ($m[1] === '') { $start = max(0, $size - (int) $m[2]); $end = $size - 1; }
+            else { $start = (int) $m[1]; $end = $m[2] === '' ? $size - 1 : min((int) $m[2], $size - 1); }
+            if ($size === 0 || $start >= $size || $start > $end)
+                return new Stream(function () {}, $head + ['Content-Range' => 'bytes */' . $size, 'Content-Length' => '0'], 416);
+            $bk = $file->open();
+            return new Stream(function () use ($bk, $start, $end) {
+                @ini_set('zlib.output_compression', 'Off');
+                $pos = $start;
+                while ($pos <= $end) {
+                    $chunk = $bk->read(min(65536, $end - $pos + 1), $pos);
+                    if ($chunk === false || $chunk === '' || $chunk === null) break;
+                    echo $chunk;
+                    $pos += strlen($chunk);
+                }
+            }, $head + ['Content-Range' => sprintf('bytes %d-%d/%d', $start, $end, $size), 'Content-Length' => (string) ($end - $start + 1)], 206);
+        }
+
         $bk = $file->open();
         return new Stream(function () use ($bk) {
             @ini_set('zlib.output_compression', 'Off');
             $bk->passthru();   // chunked read: no full-file buffer in memory (PP-10)
-        }, $base + [
-            'Content-Type'        => $type,
-            'Content-Length'      => (string) (int) $file->getSize(),
-            'Content-Disposition' => self::disposition($inlineOk ? 'inline' : 'attachment', $name),
-        ]);
+        }, $head + ['Content-Length' => (string) $size]);
     }
 
     /** RFC 6266 header: ASCII fallback + UTF-8 filename* (legacy §B-18). */

@@ -180,6 +180,11 @@ final class Threads {
         $ticket = $req->ctx['ticket'];
         $staff = $req->staff;
 
+        // A document note declares its identity; a retry the idempotency record cannot answer adopts the existing note.
+        $doc = \OstWorkflow\Documents::fromRequest($req);
+        if ($doc && ($ex = \OstWorkflow\Documents::check($doc, $ticket)))
+            return Res::ok(['applied' => false, 'adopted' => true, 'document' => $doc, 'entry' => Threading::entry(\ThreadEntry::lookup($ex['entry_id']))]);
+
         $chars = Threading::charsIn($req);
         $body = Threading::bodyFromRequest($req);
         $title = Threading::title($req);
@@ -209,7 +214,8 @@ final class Threads {
         $effects = Threading::effects($before, Threading::snapshot($ticket));
         $effects['alert'] = $alert;
         $effects['sanitized'] = Threading::sanitized($chars, $entry->getBody());
-        return Res::created(['entry' => Threading::entry($entry), 'effects' => $effects]);
+        if ($doc) \OstWorkflow\Documents::record($doc, $ticket, $entry);
+        return Res::created(['entry' => Threading::entry($entry), 'effects' => $effects] + ($doc ? ['document' => $doc] : []));
     }
 
     // ------------------------------------------------------------------

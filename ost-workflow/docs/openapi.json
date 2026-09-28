@@ -348,6 +348,40 @@
                 }
             }
         },
+        "/documents/{uuid}": {
+            "get": {
+                "operationId": "documentsShow_get_documents_uuid_",
+                "tags": [
+                    "Documents"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/files": {
             "post": {
                 "operationId": "filesUpload_post_files",
@@ -609,6 +643,53 @@
                                 "schema": {
                                     "$ref": "#/components/schemas/Error"
                                 }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "meUpdate_patch_me",
+                "tags": [
+                    "Me"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
                             }
                         }
                     }
@@ -1276,6 +1357,65 @@
                     },
                     "304": {
                         "description": "Not modified (If-None-Match)"
+                    }
+                }
+            }
+        },
+        "/queues": {
+            "get": {
+                "operationId": "queuesIndex_get_queues",
+                "tags": [
+                    "Queues"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queues/{id}/tickets": {
+            "get": {
+                "operationId": "queuesTickets_get_queues_id_tickets",
+                "tags": [
+                    "Queues"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2744,6 +2884,40 @@
                 }
             }
         },
+        "/tickets/{id}/documents": {
+            "get": {
+                "operationId": "documentsOfTicket_get_tickets_id_documents",
+                "tags": [
+                    "Documents"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/tickets/{id}/fields": {
             "get": {
                 "operationId": "ticketsFields_get_tickets_id_fields",
@@ -3181,6 +3355,40 @@
         "/tickets/{id}/participants": {
             "get": {
                 "operationId": "ticketsParticipants_get_tickets_id_participants",
+                "tags": [
+                    "Tickets"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/pdf": {
+            "get": {
+                "operationId": "ticketsPdf_get_tickets_id_pdf",
                 "tags": [
                     "Tickets"
                 ],

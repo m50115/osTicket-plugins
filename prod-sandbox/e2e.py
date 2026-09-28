@@ -158,10 +158,13 @@ t2 = login(*ADMIN)
 call("POST", "/auth/logout", {}, token=t2, key=None)
 check("logged-out token is revoked", call("GET", "/config", token=t2).status == 401)
 check("other tokens keep working", call("GET", "/config", token=TOK).status == 200)
-t3 = login(*ADMIN)
-call("POST", "/auth/logout", {"all": True}, token=t3, key=None)
-check("logout all revokes every token", call("GET", "/config", token=TOK).status == 401 and call("GET", "/config", token=t3).status == 401)
-TOK = login(*ADMIN)
+if A2[0]:
+    ta, tb = login(*A2), login(*A2)
+    call("POST", "/auth/logout", {"all": True}, token=ta, key=None)
+    check("logout all revokes every token of that agent", call("GET", "/config", token=ta).status == 401 and call("GET", "/config", token=tb).status == 401)
+    check("...and does not touch other agents", call("GET", "/config", token=TOK).status == 200)
+else:
+    skip("logout all", "needs AGENT2_USER/AGENT2_PASS (it would revoke the admin's tokens)")
 TOK2 = login(*A2) if A2[0] else None
 
 # ------------------------------------------------------------------ catalogs
@@ -384,6 +387,64 @@ else:
     skip("SLA overdue restart / clear_overdue", "no DB access")
 if TOK2:
     check("agent2: SLA operations need ticket.edit", call("POST", "/tickets/%d/sla" % TID, {"action": "restart", "base": sla_base()}, token=TOK2).status in (403, 404))
+
+# ------------------------------------------------------------------ range, /me, documents, queues, PDF export
+print("\n[downloads with Range, profile, documents, queues, ticket PDF]")
+data = ("".join(chr(65 + i % 26) for i in range(5000))).encode()
+b_, c_ = multipart("file", "range-%s.txt" % U, data)
+RH = call("POST", "/files", token=TOK, raw=b_, ctype=c_).data["hash"]
+def get_range(rng):
+    rq = urllib.request.Request(BASE + "/files/" + RH, headers={"Authorization": "Bearer " + TOK, "Range": rng})
+    try:
+        with urllib.request.urlopen(rq) as r:
+            return r.status, r.read(), dict(r.headers)
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), dict(e.headers)
+st_, body_, h_ = get_range("bytes=0-9")
+check("Range: first 10 bytes -> 206 + Content-Range", st_ == 206 and body_ == data[:10] and h_["Content-Range"] == "bytes 0-9/5000")
+st_, body_, h_ = get_range("bytes=-5")
+check("Range: suffix", st_ == 206 and body_ == data[-5:])
+check("Range: unsatisfiable -> 416", get_range("bytes=9000-9999")[0] == 416)
+a_ = get_range("bytes=0-2499")[1] + get_range("bytes=2500-")[1]
+check("Range: reassembled bytes equal the original", a_ == data)
+
+pr = call("GET", "/me", token=TOK)
+check("PATCH /me needs base", call("PATCH", "/me", {"mobile": "555-0100"}, token=TOK).status == 422)
+old_mobile = pr.data.get("mobile") or ""
+new_mobile = "555-%04d" % (int(U[:4], 16) % 10000)
+r = call("PATCH", "/me", {"mobile": new_mobile, "base": {"mobile": old_mobile}}, token=TOK)
+check("PATCH /me applies with base", r.status == 200 and r.data["applied"] and r.data["changed"] == ["mobile"], r.raw[:120])
+check("PATCH /me same value is a no-op", call("PATCH", "/me", {"mobile": new_mobile, "base": {"mobile": "x"}}, token=TOK).data["applied"] is False)
+check("PATCH /me stale base -> 409", call("PATCH", "/me", {"mobile": "555-9999", "base": {"mobile": "old"}}, token=TOK).status == 409)
+check("PATCH /me refuses e-mail / role", call("PATCH", "/me", {"email": "x@y.z", "base": {}}, token=TOK).status == 422)
+call("PATCH", "/me", {"mobile": old_mobile, "base": {"mobile": new_mobile}}, token=TOK)
+
+DU = str(uuid.uuid4())
+dn = {"body": "Service document %s, first version" % U, "document": {"uuid": DU, "version": 1}}
+r = call("POST", "/tickets/%d/notes" % TID, dn, token=TOK)
+check("document note v1", r.status == 201 and r.data["document"]["uuid"] == DU)
+DE = r.data["entry"]["id"]
+r = call("POST", "/tickets/%d/notes" % TID, dn, token=TOK)   # new idempotency key: only the document index can answer
+check("retry with another key adopts the existing note", r.status == 200 and r.data["adopted"] and r.data["entry"]["id"] == DE)
+check("supersedes a version that does not exist -> 409", call("POST", "/tickets/%d/notes" % TID, {"body": "Service document second version", "document": {"uuid": DU, "version": 3, "supersedes": 2}}, token=TOK).status == 409)
+r = call("POST", "/tickets/%d/notes" % TID, {"body": "Service document %s, corrected" % U, "document": {"uuid": DU, "version": 2, "supersedes": 1}}, token=TOK)
+check("document v2 supersedes v1", r.status == 201)
+r = call("GET", "/documents/" + DU, token=TOK)
+check("GET /documents/{uuid} lists the chain", r.status == 200 and r.data["latest_version"] == 2 and [v["supersedes"] for v in r.data["versions"]] == [None, 1])
+check("GET /tickets/{id}/documents", DU in [d["uuid"] for d in call("GET", "/tickets/%d/documents" % TID, token=TOK).data])
+
+qs = call("GET", "/queues?counts=1", token=TOK)
+check("queues: the agent's saved queues with counts", qs.status == 200 and len(qs.data) > 0 and all("count" in q for q in qs.data))
+q0 = qs.data[0]
+qt = call("GET", "/queues/%d/tickets?limit=100" % q0["id"], token=TOK)
+check("queue tickets = its count (one page)", qt.status == 200 and len(qt.data) == q0["count"] and qt.meta["queue"]["id"] == q0["id"], "%s vs %s" % (len(qt.data or []), q0["count"]))
+check("unknown queue -> 404", call("GET", "/queues/999999/tickets", token=TOK).status == 404)
+
+rq = urllib.request.Request(BASE + "/tickets/%d/pdf?notes=1" % TID, headers={"Authorization": "Bearer " + TOK})
+with urllib.request.urlopen(rq) as resp:
+    pdfb = resp.read()
+    check("ticket PDF export", resp.headers.get("Content-Type") == "application/pdf" and pdfb.startswith(b"%PDF") and pdfb.rstrip().endswith(b"%%EOF"))
+check("PDF: paper is validated", call("GET", "/tickets/%d/pdf?paper=A9" % TID, token=TOK).status == 422)
 
 # ------------------------------------------------------------------ tasks
 print("\n[tasks]")

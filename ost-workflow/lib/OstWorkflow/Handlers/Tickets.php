@@ -38,6 +38,7 @@ final class Tickets {
             ['GET',    "$id/related",                 'related',  ['policy' => 'ticket.view']],
             ['GET',    "$id/collaborators",           'collaborators', ['policy' => 'ticket.view']],
             ['GET',    "$id/actions",                 'actions',  ['policy' => 'ticket.view']],
+            ['GET',    "$id/pdf",                     'pdf',      ['policy' => 'ticket.view']],
             ['GET',    "$id/targets",                 'targets',  ['policy' => 'ticket.view']],
             ['PATCH',  "$id/collaborators/(?P<uid>\d+)", 'setCollaborator',    ['policy' => 'ticket.edit']],
             ['DELETE', "$id/collaborators/(?P<uid>\d+)", 'removeCollaborator', ['policy' => 'ticket.edit']],
@@ -212,6 +213,47 @@ final class Tickets {
     static function actions(Request $req) {
         $t = $req->ctx['ticket'];
         return Res::ok(['ticket_id' => (int) $t->getId(), 'actions' => Ticketing::actions($t, $req->staff)]);
+    }
+
+    /**
+     * GET /tickets/{id}/pdf?paper=Letter|Legal|Ledger|A4|A3&notes=0|1&events=0|1 — the SCP's "Print" export.
+     * Uses osTicket's own Ticket2PDF (mPDF) and returns the bytes: Ticket::pdfExport() would send them itself and
+     * exit. Internal notes and events are included only when asked (`notes`, `events`).
+     */
+    static function pdf(Request $req) {
+        $t = $req->ctx['ticket'];
+        $paper = (string) $req->q('paper', $req->staff->getDefaultPaperSize() ?: 'Letter');
+        if (!in_array($paper, ['Letter', 'Legal', 'Ledger', 'A4', 'A3'], true))
+            throw ApiError::validation("'paper' must be Letter, Legal, Ledger, A4 or A3", 'paper');
+        $flags = [];
+        foreach (['notes', 'events'] as $k) {
+            $v = $req->q($k, '0');
+            if ($v !== '0' && $v !== '1') throw ApiError::validation("'$k' must be 0 or 1", $k);
+            $flags[$k] = $v === '1';
+        }
+        require_once(INCLUDE_DIR . 'class.pdf.php');
+        if (!class_exists('Ticket2PDF'))
+            throw new ApiError('not_configured', 'PDF export is not available on this installation (mPDF missing)');
+        $name = 'Ticket-' . $t->getNumber() . '.pdf';
+        $warn = [];
+        try {
+            $bytes = (new \Ticket2PDF($t, $paper, $flags['notes'], $flags['events']))->output($name, 'S');
+        } catch (\Throwable $e) {
+            // An event the core cannot describe (e.g. a malformed 'collab' payload on PHP 8) must not lose the whole
+            // document: print again without the event log and say so.
+            if (!$flags['events']) throw $e;
+            error_log('[ost-workflow] pdf events omitted: ' . $e->getMessage());
+            $warn[] = 'events_omitted';
+            $bytes = (new \Ticket2PDF($t, $paper, $flags['notes'], false))->output($name, 'S');
+        }
+        if (!is_string($bytes) || strncmp($bytes, '%PDF', 4) !== 0)
+            throw new ApiError('internal_error', 'The PDF could not be generated');
+        return new \OstWorkflow\Stream(function () use ($bytes) { echo $bytes; }, [
+            'Content-Type'           => 'application/pdf',
+            'Content-Length'         => (string) strlen($bytes),
+            'Content-Disposition'    => 'attachment; filename="' . $name . '"',
+            'X-Content-Type-Options' => 'nosniff',
+        ] + ($warn ? ['X-Workflow-Warnings' => implode(',', $warn)] : []));
     }
 
     /** GET /tickets/{id}/targets — assignment and referral destinations with `available` and the reason. */
