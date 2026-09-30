@@ -548,7 +548,7 @@ else:
 
 # ------------------------------------------------------------------ hardening (2026-09-28)
 print("\n[hardening: frozen surface, removed routes, mass assignment, directory, cross-department, budgets]")
-FROZEN_ROUTES = 102
+FROZEN_ROUTES = 105   # 102 + the 3 read-only Knowledge Base routes (OW-REQ-64, 2026-09-29)
 oa = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ost-workflow", "docs", "openapi.json")))
 ops = [(m.upper(), p) for p, v in oa["paths"].items() for m in v if m in ("get", "post", "put", "patch", "delete")]
 check("frozen surface: %d routes in the OpenAPI generated from the route table" % FROZEN_ROUTES, len(ops) == FROZEN_ROUTES, "found %d" % len(ops))
@@ -1010,6 +1010,138 @@ else:
               str([(x.status, x.details.get("reason")) for x in rs]))
     check("inline guard: none of those creates an attachment, and the rejected POST /tickets created no ticket",
           n_rows("ost_attachment") == sweep_att and (sql("select count(*) from ost_ticket__cdata where subject = '%s'" % subj_sweep) or ["?"])[0] == "0")
+
+# ------------------------------------------------------------------ Knowledge Base, read-only (OW-REQ-64, 2026-09-29)
+print("\n[knowledge base: read-only gateway over osTicket's FAQ / Category]")
+KB = "e2e-kb-" + U
+if sql("select 1") is None:
+    skip("knowledge base", "no DB access to build the fixtures")
+else:
+    def kb_snapshot():
+        a = sql("select count(*), coalesce(sum(crc32(concat(faq_id,'|',category_id,'|',ispublished,'|',question,'|',answer,'|',ifnull(keywords,''),'|',ifnull(notes,''),'|',updated))),0) from ost_faq")
+        b = sql("select count(*), coalesce(sum(crc32(concat(category_id,'|',ifnull(category_pid,0),'|',ispublic,'|',name,'|',description,'|',updated))),0) from ost_faq_category")
+        c = sql("select (select count(*) from ost_faq_topic), (select count(*) from ost_attachment where type='F')")
+        return (a, b, c)
+
+    hostile = ('<p>ok</p><script>alert(1)</script><img src="x" onerror="alert(2)"><a href="javascript:alert(3)" onclick="x()">l</a>'
+               '<iframe src="http://evil.example"></iframe><form action="x"><input name="p"></form><p onmouseover="z()">t</p>')
+    sql("insert into ost_faq_category (category_pid,ispublic,name,description,notes,created,updated) values "
+        "(NULL,1,'%s-AGFA','d','n',NOW(),NOW()),(NULL,0,'%s-Priv','d','n',NOW(),NOW())" % (KB, KB))
+    cA = int(sql("select category_id from ost_faq_category where name='%s-AGFA'" % KB)[0])
+    cP = int(sql("select category_id from ost_faq_category where name='%s-Priv'" % KB)[0])
+    sql("insert into ost_faq_category (category_pid,ispublic,name,description,notes,created,updated) values (%d,1,'%s-CR30X','d','n',NOW(),NOW())" % (cA, KB))
+    cB = int(sql("select category_id from ost_faq_category where name='%s-CR30X'" % KB)[0])
+    NOTE = "SECRET-NOTE-" + U
+    sql("insert into ost_faq (category_id,ispublished,question,answer,keywords,notes,created,updated) values "
+        "(%d,1,'%s Configurar destino PACS','<p>Procedimiento <b>DICOM</b> AE title</p>','pacs dicom','%s',NOW(),NOW()),"
+        "(%d,0,'%s Worklist interna','<p>solo interno</p>',' ','%s',NOW(),NOW()),"
+        "(%d,2,'%s Problemas frecuentes','<p>destacado</p>',NULL,'%s',NOW(),NOW()),"
+        "(%d,1,'%s Hostil','%s','x','%s',NOW(),NOW())" % (cB, KB, NOTE, cB, KB, NOTE, cA, KB, NOTE, cP, KB, hostile.replace("'", "''"), NOTE))
+    ids = {k: int(sql("select faq_id from ost_faq where question='%s %s'" % (KB, k))[0])
+           for k in ("Configurar destino PACS", "Worklist interna", "Problemas frecuentes", "Hostil")}
+    fPacs, fWl, fProb, fHost = (ids[k] for k in ("Configurar destino PACS", "Worklist interna", "Problemas frecuentes", "Hostil"))
+    before = kb_snapshot()
+
+    ART_LIST_KEYS = {"id", "question", "category_id", "keywords", "visibility", "updated"}
+    ART_KEYS = ART_LIST_KEYS | {"answer", "created"}
+    CAT_KEYS = {"id", "parent_id", "name", "visibility", "article_count"}
+
+    # --- categories
+    r = call("GET", "/knowledge/categories?limit=200", token=TOK)
+    mine = {c["id"]: c for c in (r.data or []) if c["name"].startswith(KB)}
+    check("categories: 200 with data/meta envelope", r.status == 200 and isinstance(r.data, list) and "has_more" in r.meta and "next_cursor" in r.meta)
+    check("categories: exact field allowlist", bool(mine) and all(set(c) == CAT_KEYS for c in r.data), str(r.data[:1]))
+    check("categories: parent/child (CR30X under AGFA, AGFA is a root)", mine.get(cB, {}).get("parent_id") == cA and mine.get(cA, {}).get("parent_id") is None)
+    check("categories: visibility labels (public / internal) and own article counts",
+          mine[cA]["visibility"] == "public" and mine[cP]["visibility"] == "internal" and mine[cB]["article_count"] == 2 and mine[cA]["article_count"] == 1 and mine[cP]["article_count"] == 1,
+          str(mine))
+    p1 = call("GET", "/knowledge/categories?limit=1", token=TOK)
+    check("categories: cursor pagination (limit=1 -> has_more + next_cursor; the next page moves forward)",
+          p1.status == 200 and p1.meta.get("count") == 1 and p1.meta.get("has_more") is True and p1.meta.get("next_cursor")
+          and call("GET", "/knowledge/categories?limit=1&cursor=" + urllib.parse.quote(p1.meta["next_cursor"]), token=TOK).data[0]["id"] > p1.data[0]["id"])
+
+    # --- article list
+    r = call("GET", "/knowledge/articles?q=" + KB, token=TOK)
+    check("articles: q finds the 4 fixtures (question substring), by id", r.status == 200 and [a["id"] for a in r.data] == sorted(ids.values()), str(r.data))
+    check("articles: list allowlist has no answer, no notes", all(set(a) == ART_LIST_KEYS for a in r.data) and NOTE not in r.raw and "answer" not in r.data[0])
+    by = {a["id"]: a for a in r.data}
+    check("articles: visibility labels internal/public/featured, keywords null when blank",
+          (by[fWl]["visibility"], by[fPacs]["visibility"], by[fProb]["visibility"]) == ("internal", "public", "featured") and by[fWl]["keywords"] is None and by[fProb]["keywords"] is None and by[fPacs]["keywords"] == "pacs dicom")
+    r = call("GET", "/knowledge/articles?category=%d&q=%s" % (cB, KB), token=TOK)
+    check("articles: q + category (exact category, no descendants)", r.status == 200 and sorted(a["id"] for a in r.data) == sorted([fPacs, fWl]), str(r.data))
+    r = call("GET", "/knowledge/articles?category=%d" % cA, token=TOK)
+    check("articles: category alone", r.status == 200 and [a["id"] for a in r.data] == [fProb])
+    check("articles: q matches inside the answer", [a["id"] for a in call("GET", "/knowledge/articles?q=AE%20title&category=" + str(cB), token=TOK).data] == [fPacs])
+    check("articles: q matches keywords", fPacs in [a["id"] for a in call("GET", "/knowledge/articles?q=pacs%20dicom", token=TOK).data])
+    check("articles: q matches the category name", {fPacs, fWl} <= {a["id"] for a in call("GET", "/knowledge/articles?q=" + KB + "-CR30X", token=TOK).data})
+    r = call("GET", "/knowledge/articles?q=" + KB + "&limit=2", token=TOK)
+    n1 = r.meta.get("next_cursor")
+    r2 = call("GET", "/knowledge/articles?q=%s&limit=2&cursor=%s" % (KB, urllib.parse.quote(n1 or "")), token=TOK)
+    check("articles: cursor pages cover the 4 fixtures once each",
+          r.meta.get("count") == 2 and r.meta.get("has_more") is True and r2.status == 200 and r2.meta.get("count") == 2 and r2.meta.get("has_more") is False and r2.meta.get("next_cursor") is None
+          and [a["id"] for a in r.data + r2.data] == sorted(ids.values()))
+    r = call("GET", "/knowledge/articles?q=" + KB + "-nothing-here", token=TOK)
+    check("articles: no match is a valid empty page", r.status == 200 and r.data == [] and r.meta.get("count") == 0 and r.meta.get("has_more") is False)
+    check("articles: limit above the maximum is clamped (200, at most 100)", (lambda x: x.status == 200 and x.meta.get("count") <= 100)(call("GET", "/knowledge/articles?limit=100000", token=TOK)))
+    check("articles: limit=0 is clamped to 1", call("GET", "/knowledge/articles?limit=0&q=" + KB, token=TOK).meta.get("count") == 1)
+    check("articles: unknown parameters are ignored (existing convention)", call("GET", "/knowledge/articles?q=%s&foo=bar" % KB, token=TOK).status == 200)
+
+    # --- detail
+    r = call("GET", "/knowledge/articles/%d" % fPacs, token=TOK)
+    check("detail: 200 with the exact allowlist (no notes, no admin fields)", r.status == 200 and set(r.data) == ART_KEYS and NOTE not in r.raw, str(sorted(r.data or {})))
+    check("detail: answer HTML kept, category, keywords, question",
+          r.data["answer"] == "<p>Procedimiento <b>DICOM</b> AE title</p>" and r.data["category_id"] == cB and r.data["keywords"] == "pacs dicom" and r.data["question"] == KB + " Configurar destino PACS")
+    check("detail: dates are ISO UTC", bool(re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$", r.data["created"] or "")) and bool(re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$", r.data["updated"] or "")), str((r.data["created"], r.data["updated"])))
+    r = call("GET", "/knowledge/articles/%d" % fHost, token=TOK)
+    ans = (r.data or {}).get("answer", "")
+    low = ans.lower()
+    check("html: script, on* handlers, iframe and form are gone; the javascript: link is neutralized by the core's `denied:` scheme",
+          r.status == 200 and not any(x in low for x in ("<script", "alert(1)", "onerror", "onclick", "onmouseover", 'href="javascript', "<iframe", "<form", "<input")) and 'href="denied:' in low, ans)
+    check("html: harmless content survives (<p>ok</p>, the image, the link text)", "<p>ok</p>" in ans and "<img" in low and ">l</a>" in ans, ans)
+    check("html: the stored row was NOT rewritten by reading it", sql("select answer from ost_faq where faq_id=%d" % fHost)[0].count("<script>") == 1)
+    check("detail: unknown id is 404 JSON", call("GET", "/knowledge/articles/999999999", token=TOK).err == "not_found")
+    check("detail: id 0 is 404", call("GET", "/knowledge/articles/0", token=TOK).status == 404)
+    check("detail: a non-numeric or huge id is 404, never 500", [call("GET", "/knowledge/articles/" + i, token=TOK).status for i in ("abc", "1x", "99999999999999999999999")] == [404, 404, 404])
+
+    # --- visibility: the core shows every article/category to any logged-in agent; a Limited Access agent included
+    if TOK2:
+        r = call("GET", "/knowledge/articles?q=" + KB, token=TOK2)
+        check("visibility: a Limited Access agent sees the same list, internal and private-category articles included (as the SCP does)",
+              r.status == 200 and sorted(a["id"] for a in r.data) == sorted(ids.values()), str(r.status))
+        check("visibility: ... and reads an internal article and one of a private category", call("GET", "/knowledge/articles/%d" % fWl, token=TOK2).status == 200 and call("GET", "/knowledge/articles/%d" % fHost, token=TOK2).status == 200)
+        check("visibility: categories list for that agent contains the private category (labelled internal)",
+              any(c["id"] == cP and c["visibility"] == "internal" for c in call("GET", "/knowledge/categories?limit=200", token=TOK2).data))
+    else:
+        skip("knowledge visibility (agent2)", "no agent2 credentials")
+
+    # --- validation
+    def st(path): return call("GET", path, token=TOK)
+    check("validation: category not an id / zero / unknown / array / injection -> 422",
+          [st(p).status for p in ("/knowledge/articles?category=abc", "/knowledge/articles?category=0", "/knowledge/articles?category=99999999", "/knowledge/articles?category[]=1", "/knowledge/articles?category=1%20OR%201=1")] == [422] * 5)
+    check("validation: q too short / too long / array -> 422 with field q",
+          [st(p).status for p in ("/knowledge/articles?q=a", "/knowledge/articles?q=" + "x" * 101, "/knowledge/articles?q[]=ab")] == [422] * 3 and st("/knowledge/articles?q=a").json["error"].get("field") == "q")
+    check("validation: limit not an integer -> 422; cursor garbage -> 422 (both lists)",
+          [st(p).status for p in ("/knowledge/articles?limit=abc", "/knowledge/articles?cursor=zzzz", "/knowledge/categories?limit=abc", "/knowledge/categories?cursor=zzzz")] == [422] * 4)
+    r = st("/knowledge/articles?q=" + urllib.parse.quote("' OR '1'='1' -- ") + "&category=" + str(cA))
+    check("security: SQL metacharacters in q are data (200, nothing matched)", r.status == 200 and r.data == [])
+    check("security: no attachment/notes/topics sub-resources exist", [st("/knowledge/articles/%d/%s" % (fPacs, x)).status for x in ("attachments", "notes", "topics", "files")] == [404] * 4)
+
+    # --- auth + methods
+    ks = ["/knowledge/categories", "/knowledge/articles", "/knowledge/articles/%d" % fPacs]
+    check("auth: no token / garbage token -> 401 on all three", [call("GET", p, key=None).status for p in ks] == [401] * 3 and [call("GET", p, token="a.b", key=None).status for p in ks] == [401] * 3)
+    ms = [(m, p, call(m, p, {} if m != "DELETE" else None, token=TOK)) for p in ks for m in ("POST", "PUT", "PATCH", "DELETE")]
+    check("methods: POST/PUT/PATCH/DELETE on every knowledge path -> 405 with Allow: GET", all(x.status == 405 and "GET" in x.headers.get("Allow", "") for _, _, x in ms), str([(m, p, x.status) for m, p, x in ms if x.status != 405]))
+    check("methods: nothing named /knowledge/... other than these three exists (write verbs on a sibling path -> 404)",
+          [call("POST", p, {}, token=TOK).status for p in ("/knowledge", "/knowledge/articles/%d/publish" % fPacs, "/knowledge/categories/%d" % cA)] == [404] * 3)
+
+    # --- read-only: every KB byte is unchanged after all of the above
+    after = kb_snapshot()
+    check("read-only: faq, faq_category, faq_topic and FAQ attachments are identical before/after all requests", before == after, "%s -> %s" % (before, after))
+
+    # --- clean only our own fixtures
+    sql("delete from ost_faq where question like '%s %%'" % KB)
+    sql("delete from ost_faq_category where name like '%s-%%'" % KB)
+    check("fixtures cleaned (only this run's rows)", sql("select count(*) from ost_faq where question like '%s %%'" % KB)[0] == "0" and sql("select count(*) from ost_faq_category where name like '%s-%%'" % KB)[0] == "0")
 
 # ------------------------------------------------------------------ login throttling
 print("\n[login throttling per user + real IP]")

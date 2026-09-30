@@ -16,6 +16,7 @@ final class Router {
         Handlers\Catalogs::class,
         Handlers\Forms::class,
         Handlers\Canned::class,
+        Handlers\Knowledge::class,
         Handlers\Queues::class,
         Handlers\Tickets::class,
         Handlers\Threads::class,

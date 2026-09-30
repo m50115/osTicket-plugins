@@ -550,6 +550,90 @@
                 }
             }
         },
+        "/knowledge/articles": {
+            "get": {
+                "operationId": "knowledgeArticles_get_knowledge_articles",
+                "tags": [
+                    "Knowledge"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/knowledge/articles/{id}": {
+            "get": {
+                "operationId": "knowledgeArticle_get_knowledge_articles_id_",
+                "tags": [
+                    "Knowledge"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/knowledge/categories": {
+            "get": {
+                "operationId": "knowledgeCategories_get_knowledge_categories",
+                "tags": [
+                    "Knowledge"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/match/contact": {
             "get": {
                 "operationId": "matchingContact_get_match_contact",

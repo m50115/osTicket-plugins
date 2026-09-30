@@ -2,7 +2,7 @@
 
 Plugin de osTicket 1.17.2 (`ost:workflow`) que expone las capacidades del núcleo como una API JSON tipada y versionada bajo **`/workflow/v1`**: sesión con token revocable, catálogos, tickets, hilo y archivos, contactos y organizaciones, tareas, reconciliación, sincronización por deltas e informes. Es el componente de servidor de BestCare Workflow.
 
-- **Estado:** **CLOSED / FROZEN** para la fase de diseño actual (*feature-complete*, línea base de seguridad reforzada, mantenimiento dirigido por consumidores, 102 rutas). **No es «production-ready»**: las compuertas de verificación en producción y de despliegue siguen abiertas fuera del código ([docs/wiki/Seguridad.md](docs/wiki/Seguridad.md)).
+- **Estado:** **CLOSED / FROZEN** para la fase de diseño actual (*feature-complete*, línea base de seguridad reforzada, mantenimiento dirigido por consumidores, 105 rutas: las 102 de la línea base + 3 de lectura de Knowledge Base, OW-REQ-64). **No es «production-ready»**: las compuertas de verificación en producción y de despliegue siguen abiertas fuera del código ([docs/wiki/Seguridad.md](docs/wiki/Seguridad.md)).
 - **Wiki (estable):** [docs/wiki/Home.md](docs/wiki/Home.md) — instalación y actualización validadas en sandbox tipo producción, requisitos de despliegue (nginx), convenciones, referencia de las 102 rutas, guía offline, seguridad y solución de problemas.
 - **OpenAPI:** [docs/openapi.json](docs/openapi.json) (generado de la tabla real de rutas).
 - **Detalle por área** (cuerpos, errores, funciones del núcleo con archivo y línea): [docs/endpoints/](docs/endpoints/).

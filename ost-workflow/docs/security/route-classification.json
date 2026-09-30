@@ -1019,6 +1019,36 @@
    "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
    "abuse": "Aggregates over the agent's visible tickets only.",
    "recommendation": "KEEP"
+  },
+  "GET /knowledge/categories": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "knowledge base (OW-REQ-64)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core.",
+   "recommendation": "KEEP"
+  },
+  "GET /knowledge/articles": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "knowledge base (OW-REQ-64)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core. `q` 2-100 chars, limit <=100.",
+   "recommendation": "KEEP"
+  },
+  "GET /knowledge/articles/{id}": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "knowledge base (OW-REQ-64)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "abuse": "Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core.",
+   "recommendation": "KEEP"
   }
  },
  "removed_2026_09_28": [

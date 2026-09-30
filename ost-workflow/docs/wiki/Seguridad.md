@@ -37,7 +37,7 @@ El plugin no escribe archivos en su directorio (el phar no admite escritura y lo
 | Editar el perfil propio (`PATCH /me`) | la firma llega por correo a los clientes y `on_vacation` frena las asignaciones; ningún módulo lo necesita (retirada el 2026-09-28) |
 
 ## Endurecimiento y línea base (2026-09-28)
-La superficie es de **102 rutas**, cada una clasificada (impacto, reversibilidad, necesidad, riesgo de abuso) en [`../security/Route-Surface.md`](../security/Route-Surface.md); la clasificación es la única fuente editable ([`route-classification.json`](../security/route-classification.json)) y `ci-check.sh` falla si una ruta queda sin clasificar. Sin borrados duros en ningún handler (guardia en CI). Controles añadidos en esta revisión, cada uno con prueba en `e2e.py`:
+La superficie es de **105 rutas**, cada una clasificada (impacto, reversibilidad, necesidad, riesgo de abuso) en [`../security/Route-Surface.md`](../security/Route-Surface.md); la clasificación es la única fuente editable ([`route-classification.json`](../security/route-classification.json)) y `ci-check.sh` falla si una ruta queda sin clasificar. Sin borrados duros en ningún handler (guardia en CI). Controles añadidos en esta revisión, cada uno con prueba en `e2e.py`:
 
 * **`fields` de `POST /tickets`** acepta solo campos personalizados del tema; `deptId`, `staffId`, `statusId`, `slaId`, `duedate`, `autorespond`… dan `422` (antes se pasaban al núcleo y saltaban las comprobaciones de departamento/asignación y el correo).
 * **Directorio de contactos y organizaciones:** con `user.dir` se navega, se pagina y se sincroniza (`/sync/users`, `/sync/organizations`); sin él, la búsqueda es del tamaño de un autocompletado (10 resultados, sin páginas, `q` ≥ 3) y un contacto/organización solo se lee si está en un ticket visible o lo creó el agente.
@@ -56,7 +56,7 @@ La superficie es de **102 rutas**, cada una clasificada (impacto, reversibilidad
 **Riesgo residual documentado:** un identificador de contacto (`user_id`) puede usarse al crear un ticket, cambiar el dueño, añadir colaboradores o poner `cc` sin acceso al directorio (igual que el panel); cada uso deja rastro visible en el ticket y la respuesta puede mostrar el nombre y el correo de ese contacto.
 
 ### Estado y compuertas restantes
-**`ost-workflow` CLOSED / FROZEN** (*feature-complete* para la fase de diseño actual, línea base de seguridad reforzada, mantenimiento dirigido por consumidores; 102 rutas). Sin defectos de runtime confirmados abiertos de esta revisión. **No es «production-ready»**; las compuertas restantes no son defectos del plugin ni reabren funciones:
+**`ost-workflow` CLOSED / FROZEN** (*feature-complete* para la fase de diseño actual, línea base de seguridad reforzada, mantenimiento dirigido por consumidores; 105 rutas). Sin defectos de runtime confirmados abiertos de esta revisión. **No es «production-ready»**; las compuertas restantes no son defectos del plugin ni reabren funciones:
 * **Verificación en producción:** zona horaria de MySQL, `trusted_proxies`, balanceador (ELB), comportamiento y caché de `file.php`, y la validación operativa del 2FA de osTicket.
 * **Despliegue e infraestructura:** firma del PHAR, exigir `build_sha` frente a `HEAD`, ECS, nginx (regla `workflow`) y `client_max_body_size`.
 

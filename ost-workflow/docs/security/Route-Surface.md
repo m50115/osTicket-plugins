@@ -2,13 +2,13 @@
 
 > Generado por `prod-sandbox/gen-route-matrix.py` a partir de `docs/openapi.json` (tabla real de rutas) y `docs/security/route-classification.json` (única fuente editable). No editar a mano.
 
-**102 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
+**105 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
 
 ## Por impacto
 
 | Valor | Rutas |
 |---|---|
-| READ_ONLY | 52 |
+| READ_ONLY | 55 |
 | SECURITY_SENSITIVE | 18 |
 | REVERSIBLE_UPDATE | 18 |
 | APPEND_ONLY | 9 |
@@ -18,7 +18,7 @@
 
 | Valor | Rutas |
 |---|---|
-| REQUIRED_BY_DESIGNED_CONSUMER | 78 |
+| REQUIRED_BY_DESIGNED_CONSUMER | 81 |
 | REQUIRED_BY_CORE_WORKFLOW | 15 |
 | NO_CONSUMER_YET | 5 |
 | USEFUL_BUT_NOT_REQUIRED | 4 |
@@ -27,7 +27,7 @@
 
 | Valor | Rutas |
 |---|---|
-| FIELD_OPERATION | 54 |
+| FIELD_OPERATION | 57 |
 | WORKFLOW_OPERATION | 34 |
 | SYSTEM_ADMINISTRATION | 14 |
 
@@ -35,7 +35,7 @@
 
 | Valor | Rutas |
 |---|---|
-| KEEP | 102 |
+| KEEP | 105 |
 
 ## Rutas retiradas de la superficie pública (2026-09-28)
 
@@ -70,6 +70,9 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `GET /forms/organization` | R | `auth` | tickets, contacts, service_orders | SYSTEM_ADMINISTRATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Catalog/form definitions; no business data. ETag/304. | KEEP |
 | `GET /forms/ticket` | R | `auth` | tickets, contacts, service_orders | SYSTEM_ADMINISTRATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Catalog/form definitions; no business data. ETag/304. | KEEP |
 | `GET /forms/user` | R | `auth` | tickets, contacts, service_orders | SYSTEM_ADMINISTRATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Catalog/form definitions; no business data. ETag/304. | KEEP |
+| `GET /knowledge/articles` | R | `auth` | knowledge base (OW-REQ-64) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core. `q` 2-100 chars, limit <=100. | KEEP |
+| `GET /knowledge/articles/{id}` | R | `auth` | knowledge base (OW-REQ-64) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core. | KEEP |
+| `GET /knowledge/categories` | R | `auth` | knowledge base (OW-REQ-64) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core. | KEEP |
 | `GET /match/contact` | R | `auth` | contacts, tickets (match before create) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read. | KEEP |
 | `GET /match/organization` | R | `auth` | contacts, tickets (match before create) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read. | KEEP |
 | `GET /match/ticket` | R | `auth` | contacts, tickets (match before create) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read. | KEEP |

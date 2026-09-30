@@ -1,6 +1,6 @@
 # Referencia de la API
 
-Índice de las **102 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
+Índice de las **105 rutas** de `/workflow/v1`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
 
 La columna **Permiso** es el nombre de la política que el plugin aplica *antes* del handler (réplica de la matriz del panel de agentes de osTicket): `auth` = cualquier agente activo; `ticket.<x>` / `task.<x>` = permiso de rol en el departamento del objeto; `global.<x>` = permiso global del agente; `anydept.<x>` = permiso en al menos un departamento.
 
@@ -40,6 +40,16 @@ Detalle: [catalogs-forms-canned.md](../endpoints/catalogs-forms-canned.md)
 | `GET` | `/workflow/v1/topics/{id}/forms` | `auth` |
 | `GET` | `/workflow/v1/canned` | `auth` |
 | `GET` | `/workflow/v1/canned/{id}/render` | `canned.render` |
+
+## Knowledge Base (solo lectura)
+
+Detalle: [knowledge.md](../endpoints/knowledge.md)
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| `GET` | `/workflow/v1/knowledge/categories` | `auth` |
+| `GET` | `/workflow/v1/knowledge/articles` | `auth` |
+| `GET` | `/workflow/v1/knowledge/articles/{id}` | `auth` |
 
 ## Tickets
 
