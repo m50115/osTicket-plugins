@@ -6,7 +6,7 @@ Una **capa controlada** entre un cliente y osTicket. No es una colección de rut
 ## Principios (cerrados)
 1. **Se usa el núcleo, no SQL.** Toda escritura pasa por los métodos de dominio de osTicket (`Ticket::create`, `postReply`, `setStatus`, `assign`, `transfer`, …). Solo hay SQL directo en lecturas de agregación/sincronización y en la comparación-y-cambio del campo `extra` de organizaciones.
 2. **Los permisos son los de osTicket.** El plugin no crea permisos propios: replica, antes de cada handler, lo que comprueba el panel de agentes (el núcleo casi nunca lo hace por sí mismo).
-3. **Una sola tabla propia**, solo de infraestructura: idempotencia, revocación de tokens y bloqueo de intentos de login. Nunca es fuente de verdad de negocio.
+3. **Una tabla de infraestructura** (idempotencia, revocación de tokens y bloqueo de intentos de login; nunca es fuente de verdad de negocio) y, desde el re-congelado del 2026-10-04, **dos excepciones explícitas y acotadas** aprobadas por msolis (D-22): el almacén de mantenimientos programados (OW-REQ-70, `workflow_maintenance`) y el de contratos (OW-REQ-71, `workflow_contract*`). Ambos son durables: sin TTL ni purga, no se borran al desactivar o desinstalar el plugin y entran en el respaldo normal de la base de osTicket. No son un permiso general para tablas de módulo.
 4. **Escrituras seguras ante reintentos**: toda escritura exige `Idempotency-Key`; toda actualización lleva el valor base que el cliente vio.
 5. **Un fallo propio no tumba osTicket**: el archivo principal es mínimo, los handlers se cargan de forma diferida y todo error termina en JSON tipado.
 6. **JSON siempre**, con un catálogo cerrado de errores. Fechas en UTC ISO-8601.

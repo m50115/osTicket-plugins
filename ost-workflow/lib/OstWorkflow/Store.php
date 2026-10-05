@@ -2,7 +2,7 @@
 namespace OstWorkflow;
 
 /**
- * The plugin's ONLY table (Architecture §B13/§M): plumbing for idempotency,
+ * The plugin's infrastructure table (Architecture §B13/§M; the only one until the D-22 delta of 2026-10-04 added the two business stores Maintenance (OW-REQ-70) and Contracts (OW-REQ-71), which have their own classes): plumbing for idempotency,
  * token revocation and login throttling. Never the source of truth for
  * business data. Created in enable(), never touched in init()/bootstrap().
  *

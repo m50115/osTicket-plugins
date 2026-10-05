@@ -37,10 +37,12 @@ Desactivar **no descarga** el archivo: osTicket incluye el archivo principal de 
 ## 4. Actualizar
 Reemplace el phar **en el mismo `install_path`** (mismo nombre de archivo). Validado con el plugin activo y opcache caliente: el panel y el portal siguieron respondiendo, y tras la revalidación de opcache (unos 2 s con la configuración por defecto) se sirvió la versión nueva. En un despliegue por imagen, publique una imagen nueva con el mismo `install_path` y reinicie los contenedores.
 
+**Tablas nuevas (OW-REQ-70/71, 2026-10-04).** El plugin no tiene migraciones: las tablas `workflow_maintenance` y `workflow_contract*` se crean (`CREATE TABLE IF NOT EXISTS`) en `enable()`. Donde el plugin **ya está activo** (producción), tras reemplazar el phar hay que **desactivar y volver a activar** el plugin una vez (en el sandbox: `php prod-sandbox/plugin-admin.php <app> enable`); hasta entonces `/maintenances` y `/contracts` responden `503 not_configured`. Además, `/maintenances` exige el ajuste `installed_equipment_list_id` (id de la lista «Installed Equipment»).
+
 No use la receta antigua "phar versionado junto al viejo + desactivar el viejo": causa un error fatal global (dos copias de la misma clase).
 
 ## 5. Volver atrás
 Restaure el phar anterior en el mismo `install_path` (o la etiqueta de imagen anterior). Antes de cualquier cambio, respalde la tabla de plugins de osTicket.
 
 ## 6. Desinstalar
-Desinstalar el plugin elimina su fila y su configuración; **conserva** la tabla `{prefijo}workflow_idempotency` (puede borrarse a mano si ya no se usa).
+Desinstalar el plugin elimina su fila y su configuración; **conserva** la tabla `{prefijo}workflow_idempotency` (puede borrarse a mano si ya no se usa) y **conserva siempre** las tablas de mantenimientos y contratos (`{prefijo}workflow_maintenance`, `{prefijo}workflow_contract*`): contienen datos de negocio no reconstruibles.
