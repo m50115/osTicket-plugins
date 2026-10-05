@@ -2,23 +2,23 @@
 
 > Generado por `prod-sandbox/gen-route-matrix.py` a partir de `docs/openapi.json` (tabla real de rutas) y `docs/security/route-classification.json` (única fuente editable). No editar a mano.
 
-**116 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
+**133 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
 
 ## Por impacto
 
 | Valor | Rutas |
 |---|---|
-| READ_ONLY | 59 |
-| REVERSIBLE_UPDATE | 23 |
+| READ_ONLY | 66 |
+| REVERSIBLE_UPDATE | 27 |
 | SECURITY_SENSITIVE | 18 |
-| APPEND_ONLY | 9 |
-| HIGH_IMPACT_UPDATE | 7 |
+| APPEND_ONLY | 12 |
+| HIGH_IMPACT_UPDATE | 10 |
 
 ## Por necesidad
 
 | Valor | Rutas |
 |---|---|
-| REQUIRED_BY_DESIGNED_CONSUMER | 92 |
+| REQUIRED_BY_DESIGNED_CONSUMER | 109 |
 | REQUIRED_BY_CORE_WORKFLOW | 15 |
 | NO_CONSUMER_YET | 5 |
 | USEFUL_BUT_NOT_REQUIRED | 4 |
@@ -28,14 +28,14 @@
 | Valor | Rutas |
 |---|---|
 | FIELD_OPERATION | 68 |
-| WORKFLOW_OPERATION | 34 |
+| WORKFLOW_OPERATION | 51 |
 | SYSTEM_ADMINISTRATION | 14 |
 
 ## Por recomendación
 
 | Valor | Rutas |
 |---|---|
-| KEEP | 116 |
+| KEEP | 133 |
 
 ## Rutas retiradas de la superficie pública (2026-09-28)
 
@@ -62,6 +62,21 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `GET /canned/{id}/render` | R | `canned.render` | tickets (templates) | FIELD_OPERATION | READ_ONLY | n/a | USEFUL_BUT_NOT_REQUIRED | Templates per department visibility; render has no external effect. | KEEP |
 | `GET /catalog/sources` | R | `auth` | tickets, contacts, service_orders | SYSTEM_ADMINISTRATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Catalog/form definitions; no business data. ETag/304. | KEEP |
 | `GET /config` | R | `auth` | all modules | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_CORE_WORKFLOW | Authenticated; limits and enabled modules, never secrets. | KEEP |
+| `GET /contracts` | R | `auth` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Feed of the contracts the agent may read: Admin or manager of ANY department read all; the rest only the organizations they may read (user.dir, an organization on a Ticket they see, or created by them). Ids only (no organization names); drafts, hashes and PDF metadata beyond title/role/state/date are manager-only. Incremental cursor by (updated_at, id), not paginated (MAY LATER); per-agent ETag; carries the installation time zone. | KEEP |
+| `POST /contracts` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | REVERSIBLE_UPDATE | partial (no delete; a draft is discarded and the contract voided, never removed) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only. Creates a DRAFT contract and its first draft version for an existing organization; the organization never changes; contract number unique per organization (database key). Worst case: junk drafts that a manager discards (kept, VOIDED). | KEEP |
+| `GET /contracts/catalogs` | R | `auth` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent: classification catalog versions hold only codes, labels and a treatment (no customer or commercial data). Small, immutable, numbered. | KEEP |
+| `POST /contracts/catalogs` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | APPEND_ONLY | n/a (a catalog version is immutable; a new version supersedes it) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only; base = latest catalog number (unique key, no lost publish); mandatory reason; max 200 codes. | KEEP |
+| `GET /contracts/entitlement` | R | `auth` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Resolution of the entitlement (nine outcomes) as of a date or instant; nothing is stored. Read authorization over the evaluation organization (equipment's current owner, else the organization sent) - 403 otherwise. ORG_MISMATCH reveals no contract of the other organization. | KEEP |
+| `GET /contracts/{uuid}` | R | `contract.read` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Admin/manager of ANY department, or authorization to read the contract's organization; the same 404 for unknown and not-yours (no probing). Readers get existence, display title, role, state and date of documents (no URL, path, hash, size or author) and no drafts. | KEEP |
+| `PATCH /contracts/{uuid}` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | REVERSIBLE_UPDATE | yes (old title/number kept in the HEADER_EDITED event) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only; header (title, number) only, never terms; base = contract rev; mandatory reason; before/after kept in the append-only event. | KEEP |
+| `POST /contracts/{uuid}/activate` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | HIGH_IMPACT_UPDATE | partial (an EFFECTIVE version is immutable; undone only by VOID or a CORRECTION, both audited) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only. One transaction serialized per organization (all its contract rows locked): revalidates completeness, equipment (Installed list, ACTIVE, owner), I1-I8 and the overlap rule over the whole organization; base = the REVIEWED draft rev; mandatory reason; computes terms_hash (sha256). | KEEP |
+| `GET /contracts/{uuid}/documents/{doc_uuid}/file` | R | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only (the PDF can carry prices); readers never receive a URL, path or hash. nosniff, CSP sandbox, attachment disposition, ETag = sha256. | KEEP |
+| `PUT /contracts/{uuid}/draft` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | REVERSIBLE_UPDATE | yes (the draft is mutable until activation; discard keeps it) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only. Creates or replaces the ONE open draft (UNIQUE contract + open_draft); an EFFECTIVE version can never be written by this route (UPDATE guarded by status=DRAFT); base = draft rev. | KEEP |
+| `POST /contracts/{uuid}/draft/discard` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | REVERSIBLE_UPDATE | partial (the draft is kept DISCARDED; a never-activated contract becomes VOIDED, terminal) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only; mandatory reason; base = draft rev; nothing is deleted. | KEEP |
+| `GET /contracts/{uuid}/events` | R | `contract.read` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same read authorization as the contract; append-only history (kind, actor, server time, reason); no hash or file data in document events. limit<=200, cursor = seq. | KEEP |
+| `PUT /contracts/{uuid}/termination` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | HIGH_IMPACT_UPDATE | yes (null revokes; both audited) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only; terminated_on (first day without coverage) or null to revoke; revoking revalidates overlaps under the organization lock; mandatory reason; base = contract rev; terms are never touched. | KEEP |
+| `POST /contracts/{uuid}/versions/{version_uuid}/documents` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | APPEND_ONLY | partial (documents are never removed; replacing marks the old one SUPERSEDED) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only. file_id must be a PDF (%PDF- header, detected type) the same agent uploaded with POST /files; linked durably through a core attachment row (immune to the orphan cleanup); display_title is controlled (never the file name or an amount); DRAFT/EFFECTIVE versions only; mandatory reason; base = contract rev. | KEEP |
+| `POST /contracts/{uuid}/versions/{version_uuid}/void` | W | `contract.manager` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | HIGH_IMPACT_UPDATE | no (VOIDED is terminal; a correction is a new version) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only; EFFECTIVE -> VOIDED without replacement (the row and its hash are kept); the only EFFECTIVE version voids the contract; revalidates overlaps; mandatory reason; base = contract rev. | KEEP |
 | `GET /departments` | R | `auth` | tickets (assign/transfer/refer) | SYSTEM_ADMINISTRATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Colleague names and e-mails inside the agent's visible departments (SCP visibility); login names removed from the payload in the hardening. | KEEP |
 | `GET /departments/{id}/assignees` | R | `auth` | tickets (assign/transfer/refer) | SYSTEM_ADMINISTRATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Colleague names and e-mails inside the agent's visible departments (SCP visibility); login names removed from the payload in the hardening. | KEEP |
 | `GET /documents/{uuid}` | R | `auth` | pdf_signer, service_orders, quotes | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Only versions on tickets the agent can see; unknown/foreign uuid is 404. | KEEP |
@@ -140,6 +155,8 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `POST /tickets/{id}/collaborators` | W | `ticket.edit` | tickets (CC management) | FIELD_OPERATION | HIGH_IMPACT_UPDATE | partial (deactivate, entry stays) | REQUIRED_BY_DESIGNED_CONSUMER | A stolen token can add an attacker address as CC so every later customer reply reaches it (also portal read access). Needs ticket.edit; a NEW contact needs user.create; event `collab` is visible in the thread. Residual: contact ids are usable without directory access. | KEEP |
 | `PATCH /tickets/{id}/collaborators/{uid}` | W | `ticket.edit` | tickets (CC management) | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (toggle) | REQUIRED_BY_DESIGNED_CONSUMER | Re-activating a CC makes later public replies reach that contact; visible in the thread events. (DELETE removed: deactivation is the reversible path.) | KEEP |
 | `GET /tickets/{id}/documents` | R | `ticket.view` | tickets | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view (Policy) — the SCP visibility rule; 403 otherwise. | KEEP |
+| `GET /tickets/{id}/entitlement-bases` | R | `ticket.view` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view on the consumer Ticket; the immutable decision bases of that Ticket (result, version, hash, snapshot of the policy, what the user saw). | KEEP |
+| `POST /tickets/{id}/entitlement-bases` | W | `ticket.edit` | Contracts & Service Agreements (module 10, OW-REQ-71) | WORKFLOW_OPERATION | APPEND_ONLY | n/a (immutable; a reclassification is a new basis that supersedes) | REQUIRED_BY_DESIGNED_CONSUMER | ticket.edit on the consumer Ticket. The server resolves the entitlement itself (as_of = the Ticket's time, evaluation organization from the equipment, policy copied from the resolved version); client-sent results are ignored; base = latest basis id (unique chain link, a race answers 409). | KEEP |
 | `GET /tickets/{id}/fields` | R | `ticket.view` | tickets | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | ticket.view (Policy) — the SCP visibility rule; 403 otherwise. | KEEP |
 | `PATCH /tickets/{id}/fields/{name}` | W | `ticket.edit` | tickets, service_orders | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (base value) | REQUIRED_BY_DESIGNED_CONSUMER | Field edits carry base; conflicting writes are 409; edits are logged as thread events. | KEEP |
 | `PUT /tickets/{id}/forms` | W | `ticket.edit` | tickets, service_orders | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (base value) | REQUIRED_BY_DESIGNED_CONSUMER | Field edits carry base; conflicting writes are 409; edits are logged as thread events. | KEEP |

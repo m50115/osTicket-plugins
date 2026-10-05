@@ -284,6 +284,698 @@
                 }
             }
         },
+        "/contracts": {
+            "get": {
+                "operationId": "contractsIndex_get_contracts",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "contractsCreate_post_contracts",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/catalogs": {
+            "get": {
+                "operationId": "contractsCatalogs_get_contracts_catalogs",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "contractsPublishCatalog_post_contracts_catalogs",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/entitlement": {
+            "get": {
+                "operationId": "contractsEntitlement_get_contracts_entitlement",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}": {
+            "get": {
+                "operationId": "contractsShow_get_contracts_uuid_",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.read",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "contractsEditHeader_patch_contracts_uuid_",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}/activate": {
+            "post": {
+                "operationId": "contractsActivate_post_contracts_uuid_activate",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}/documents/{doc_uuid}/file": {
+            "get": {
+                "operationId": "contractsDownloadDocument_get_contracts_uuid_documents_doc_uuid_file",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "doc_uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}/draft": {
+            "put": {
+                "operationId": "contractsSaveDraft_put_contracts_uuid_draft",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}/draft/discard": {
+            "post": {
+                "operationId": "contractsDiscardDraft_post_contracts_uuid_draft_discard",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}/events": {
+            "get": {
+                "operationId": "contractsEvents_get_contracts_uuid_events",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.read",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}/termination": {
+            "put": {
+                "operationId": "contractsTermination_put_contracts_uuid_termination",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}/versions/{version_uuid}/documents": {
+            "post": {
+                "operationId": "contractsAddDocument_post_contracts_uuid_versions_version_uuid_documents",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "version_uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{uuid}/versions/{version_uuid}/void": {
+            "post": {
+                "operationId": "contractsVoidVersion_post_contracts_uuid_versions_version_uuid_void",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "contract.manager",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "version_uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/departments": {
             "get": {
                 "operationId": "catalogsDepartments_get_departments",
@@ -3276,6 +3968,95 @@
                                 "schema": {
                                     "$ref": "#/components/schemas/Error"
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tickets/{id}/entitlement-bases": {
+            "get": {
+                "operationId": "contractsBases_get_tickets_id_entitlement_bases",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "ticket.view",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "contractsCreateBasis_post_tickets_id_entitlement_bases",
+                "tags": [
+                    "Contracts"
+                ],
+                "x-policy": "ticket.edit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]{8,64}$"
+                        },
+                        "description": "One per operation; a retry with the same key never repeats the effect."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
                             }
                         }
                     }

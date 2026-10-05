@@ -1159,6 +1159,176 @@
    "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
    "recommendation": "KEEP",
    "abuse": "anydept.ticket.create; needs no access to the Ticket (an inaccessible Ticket must not trap the record); mandatory reason; PLANNED only; base = ticket_id seen."
+  },
+  "GET /contracts": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Feed of the contracts the agent may read: Admin or manager of ANY department read all; the rest only the organizations they may read (user.dir, an organization on a Ticket they see, or created by them). Ids only (no organization names); drafts, hashes and PDF metadata beyond title/role/state/date are manager-only. Incremental cursor by (updated_at, id), not paginated (MAY LATER); per-agent ETag; carries the installation time zone."
+  },
+  "POST /contracts": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "partial (no delete; a draft is discarded and the contract voided, never removed)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only. Creates a DRAFT contract and its first draft version for an existing organization; the organization never changes; contract number unique per organization (database key). Worst case: junk drafts that a manager discards (kept, VOIDED)."
+  },
+  "GET /contracts/entitlement": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Resolution of the entitlement (nine outcomes) as of a date or instant; nothing is stored. Read authorization over the evaluation organization (equipment's current owner, else the organization sent) - 403 otherwise. ORG_MISMATCH reveals no contract of the other organization."
+  },
+  "GET /contracts/catalogs": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Any logged-in agent: classification catalog versions hold only codes, labels and a treatment (no customer or commercial data). Small, immutable, numbered."
+  },
+  "POST /contracts/catalogs": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "APPEND_ONLY",
+   "reversible": "n/a (a catalog version is immutable; a new version supersedes it)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only; base = latest catalog number (unique key, no lost publish); mandatory reason; max 200 codes."
+  },
+  "GET /contracts/{uuid}": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Admin/manager of ANY department, or authorization to read the contract's organization; the same 404 for unknown and not-yours (no probing). Readers get existence, display title, role, state and date of documents (no URL, path, hash, size or author) and no drafts."
+  },
+  "PATCH /contracts/{uuid}": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (old title/number kept in the HEADER_EDITED event)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only; header (title, number) only, never terms; base = contract rev; mandatory reason; before/after kept in the append-only event."
+  },
+  "GET /contracts/{uuid}/events": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Same read authorization as the contract; append-only history (kind, actor, server time, reason); no hash or file data in document events. limit<=200, cursor = seq."
+  },
+  "PUT /contracts/{uuid}/draft": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (the draft is mutable until activation; discard keeps it)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only. Creates or replaces the ONE open draft (UNIQUE contract + open_draft); an EFFECTIVE version can never be written by this route (UPDATE guarded by status=DRAFT); base = draft rev."
+  },
+  "POST /contracts/{uuid}/draft/discard": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "partial (the draft is kept DISCARDED; a never-activated contract becomes VOIDED, terminal)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only; mandatory reason; base = draft rev; nothing is deleted."
+  },
+  "POST /contracts/{uuid}/activate": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "partial (an EFFECTIVE version is immutable; undone only by VOID or a CORRECTION, both audited)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only. One transaction serialized per organization (all its contract rows locked): revalidates completeness, equipment (Installed list, ACTIVE, owner), I1-I8 and the overlap rule over the whole organization; base = the REVIEWED draft rev; mandatory reason; computes terms_hash (sha256)."
+  },
+  "PUT /contracts/{uuid}/termination": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "yes (null revokes; both audited)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only; terminated_on (first day without coverage) or null to revoke; revoking revalidates overlaps under the organization lock; mandatory reason; base = contract rev; terms are never touched."
+  },
+  "POST /contracts/{uuid}/versions/{version_uuid}/void": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "no (VOIDED is terminal; a correction is a new version)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only; EFFECTIVE -> VOIDED without replacement (the row and its hash are kept); the only EFFECTIVE version voids the contract; revalidates overlaps; mandatory reason; base = contract rev."
+  },
+  "POST /contracts/{uuid}/versions/{version_uuid}/documents": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "APPEND_ONLY",
+   "reversible": "partial (documents are never removed; replacing marks the old one SUPERSEDED)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only. file_id must be a PDF (%PDF- header, detected type) the same agent uploaded with POST /files; linked durably through a core attachment row (immune to the orphan cleanup); display_title is controlled (never the file name or an amount); DRAFT/EFFECTIVE versions only; mandatory reason; base = contract rev."
+  },
+  "GET /contracts/{uuid}/documents/{doc_uuid}/file": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only (the PDF can carry prices); readers never receive a URL, path or hash. nosniff, CSP sandbox, attachment disposition, ETag = sha256."
+  },
+  "GET /tickets/{id}/entitlement-bases": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "R",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "ticket.view on the consumer Ticket; the immutable decision bases of that Ticket (result, version, hash, snapshot of the policy, what the user saw)."
+  },
+  "POST /tickets/{id}/entitlement-bases": {
+   "category": "WORKFLOW_OPERATION",
+   "rw": "W",
+   "consumer": "Contracts & Service Agreements (module 10, OW-REQ-71)",
+   "impact": "APPEND_ONLY",
+   "reversible": "n/a (immutable; a reclassification is a new basis that supersedes)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "ticket.edit on the consumer Ticket. The server resolves the entitlement itself (as_of = the Ticket's time, evaluation organization from the equipment, policy copied from the resolved version); client-sent results are ignored; base = latest basis id (unique chain link, a race answers 409)."
   }
  },
  "removed_2026_09_28": [
