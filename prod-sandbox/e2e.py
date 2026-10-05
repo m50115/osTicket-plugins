@@ -1143,6 +1143,91 @@ else:
     sql("delete from ost_faq_category where name like '%s-%%'" % KB)
     check("fixtures cleaned (only this run's rows)", sql("select count(*) from ost_faq where question like '%s %%'" % KB)[0] == "0" and sql("select count(*) from ost_faq_category where name like '%s-%%'" % KB)[0] == "0")
 
+# ------------------------------------------------------------------ Custom Lists, read-only (OW-REQ-63, 2026-10-04)
+print("\n[custom lists: read-only gateway over osTicket's DynamicList / DynamicListItem]")
+LS = "e2e-ow63-" + U
+if sql("select 1") is None:
+    skip("custom lists", "no DB access to build the fixtures")
+else:
+    def ls_snapshot():
+        return (sql("select count(*), coalesce(sum(crc32(concat(id,'|',name,'|',ifnull(type,''),'|',sort_mode,'|',updated))),0) from ost_list"),
+                sql("select count(*), coalesce(sum(crc32(concat(id,'|',list_id,'|',status,'|',value,'|',ifnull(extra,''),'|',sort,'|',ifnull(properties,'')))),0) from ost_list_items"),
+                sql("select count(*) from ost_form where type like 'L%'"), sql("select count(*) from ost_form_field"))
+
+    sql("insert into ost_list (name,name_plural,sort_mode,masks,type,notes,created,updated) values ('%s','%s','Alpha',0,NULL,'SECRET-NOTE-%s',NOW(),NOW())" % (LS, LS, U))
+    L1 = int(sql("select id from ost_list where name='%s'" % LS)[0])
+    sql("insert into ost_list (name,name_plural,sort_mode,masks,type,notes,created,updated) values ('%s-bare','%s-bare','Alpha',0,NULL,NULL,NOW(),NOW())" % (LS, LS))
+    L2 = int(sql("select id from ost_list where name='%s-bare'" % LS)[0])
+    sql("insert into ost_form (pid,type,flags,title,instructions,name,notes,created,updated) values (NULL,'L%d',1,'%s Properties',NULL,'',NULL,NOW(),NOW())" % (L1, LS))
+    F1 = int(sql("select id from ost_form where type='L%d'" % L1)[0])
+    sql("insert into ost_form_field (form_id,flags,type,label,name,configuration,sort,hint,created,updated) values "
+        "(%d,12289,'text','Serial number','serial','{\"size\":\"20\",\"length\":\"40\"}',1,NULL,NOW(),NOW()),"
+        "(%d,12289,'memo','Free notes','notes',NULL,2,NULL,NOW(),NOW())" % (F1, F1))
+    fs, fn = (int(sql("select id from ost_form_field where form_id=%d and name='%s'" % (F1, n))[0]) for n in ("serial", "notes"))
+    sql("insert into ost_list_items (list_id,status,value,extra,sort,properties) values "
+        "(%d,1,'%s Alpha','ALPHA',1,'{\"%d\":\"SN-001\",\"%d\":\"first note\"}'),"
+        "(%d,1,'%s Beta','BETA-X',2,'{\"%d\":\"SN-002\"}'),"
+        "(%d,0,'%s Retired','OLD',3,'{\"%d\":\"SN-003\"}'),"
+        "(%d,1,'%s Plain',NULL,4,NULL)" % (L1, LS, fs, fn, L1, LS, fs, L1, LS, fs, L1, LS))
+    its = {k: int(sql("select id from ost_list_items where list_id=%d and value='%s %s'" % (L1, LS, k))[0]) for k in ("Alpha", "Beta", "Retired", "Plain")}
+    sql("insert into ost_list_items (list_id,status,value,extra,sort,properties) values (%d,1,'%s Solo',NULL,1,NULL)" % (L2, LS))
+    before = ls_snapshot()
+    LIST_KEYS = {"id", "name", "name_plural", "sort_mode", "item_count", "properties"}
+    ITEM_KEYS = {"id", "value", "extra", "enabled", "internal", "sort", "properties"}
+
+    r = call("GET", "/lists?limit=500", token=TOK)
+    mine = {x["id"]: x for x in (r.data or [])}
+    check("lists: 200 with data/meta envelope", r.status == 200 and isinstance(r.data, list) and "has_more" in r.meta and "next_cursor" in r.meta)
+    check("lists: exact field allowlist; the fixture list is there with its item count (incl. retired) and no notes", L1 in mine and all(set(x) == LIST_KEYS for x in r.data) and mine[L1]["item_count"] == 4 and "SECRET-NOTE" not in r.raw, str(mine.get(L1)))
+    check("lists: property schema by logical name / label / type, in form order", mine[L1]["properties"] == [{"name": "serial", "label": "Serial number", "type": "text"}, {"name": "notes", "label": "Free notes", "type": "memo"}], str(mine[L1]["properties"]))
+    check("lists: a list without a property form has an empty schema and none is created by reading", mine[L2]["properties"] == [] and sql("select count(*) from ost_form where type='L%d'" % L2)[0] == "0")
+    check("lists: typed core lists (ticket-status) are not custom catalogs", 1 not in mine and all(x["id"] != 1 for x in r.data))
+    p1 = call("GET", "/lists?limit=1", token=TOK)
+    check("lists: cursor pagination moves forward", p1.status == 200 and p1.meta.get("has_more") is True and call("GET", "/lists?limit=1&cursor=" + urllib.parse.quote(p1.meta["next_cursor"]), token=TOK).data[0]["id"] > p1.data[0]["id"])
+
+    r = call("GET", "/lists/%d/items" % L1, token=TOK)
+    check("items: enabled only by default, by id, exact allowlist, no list notes", r.status == 200 and [i["id"] for i in r.data] == [its["Alpha"], its["Beta"], its["Plain"]] and all(set(i) == ITEM_KEYS for i in r.data) and "SECRET-NOTE" not in r.raw, str(r.data))
+    r = call("GET", "/lists/%d/items?include_disabled=1" % L1, token=TOK)
+    by = {i["id"]: i for i in (r.data or [])}
+    check("items: include_disabled=1 also returns the retired item, flagged enabled=false (historical references)", r.status == 200 and sorted(by) == sorted(its.values()) and by[its["Retired"]]["enabled"] is False and by[its["Alpha"]]["enabled"] is True, str(r.data))
+    check("items: value, extra (null when blank), sort, internal", by[its["Alpha"]]["value"] == LS + " Alpha" and by[its["Alpha"]]["extra"] == "ALPHA" and by[its["Plain"]]["extra"] is None and by[its["Beta"]]["sort"] == 2 and by[its["Alpha"]]["internal"] is False)
+    check("items: properties keyed by the field's logical name, with label and text value",
+          by[its["Alpha"]]["properties"] == {"serial": {"label": "Serial number", "value": "SN-001"}, "notes": {"label": "Free notes", "value": "first note"}}, str(by[its["Alpha"]]["properties"]))
+    check("items: a property that was never set is absent; an item without properties has an empty object", by[its["Beta"]]["properties"] == {"serial": {"label": "Serial number", "value": "SN-002"}} and by[its["Plain"]]["properties"] == {})
+    check("items: q = the core's search (value starts with)", [i["id"] for i in call("GET", "/lists/%d/items?q=%s%%20Al" % (L1, LS), token=TOK).data] == [its["Alpha"]])
+    check("items: q matches the abbreviation (extra contains)", [i["id"] for i in call("GET", "/lists/%d/items?q=ETA-" % L1, token=TOK).data] == [its["Beta"]])
+    check("items: q matches inside a property value", [i["id"] for i in call("GET", "/lists/%d/items?q=SN-002" % L1, token=TOK).data] == [its["Beta"]])
+    check("items: q never returns a retired item unless include_disabled=1", call("GET", "/lists/%d/items?q=SN-003" % L1, token=TOK).data == [] and [i["id"] for i in call("GET", "/lists/%d/items?q=SN-003&include_disabled=1" % L1, token=TOK).data] == [its["Retired"]])
+    check("items: q shorter than 2 -> 422 on q", call("GET", "/lists/%d/items?q=a" % L1, token=TOK).status == 422)
+    check("items: include_disabled must be 0 or 1", call("GET", "/lists/%d/items?include_disabled=2" % L1, token=TOK).status == 422)
+    pg = call("GET", "/lists/%d/items?include_disabled=1&limit=2" % L1, token=TOK)
+    pg2 = call("GET", "/lists/%d/items?include_disabled=1&limit=2&cursor=%s" % (L1, urllib.parse.quote(pg.meta["next_cursor"])), token=TOK)
+    check("items: cursor pagination walks every item once, in id order", pg.meta["count"] == 2 and pg.meta["has_more"] and [i["id"] for i in pg.data] + [i["id"] for i in pg2.data] == sorted(its.values()) and pg2.meta["has_more"] is False)
+    check("items: another custom list is isolated (L2 has one item and not these)", [i["value"] for i in call("GET", "/lists/%d/items" % L2, token=TOK).data] == [LS + " Solo"])
+    check("items: unknown list and typed core list -> 404", call("GET", "/lists/99999999/items", token=TOK).status == 404 and call("GET", "/lists/1/items", token=TOK).status == 404)
+    v1 = call("GET", "/lists/%d/items" % L1, token=TOK).meta.get("version")
+    v1b = call("GET", "/lists/%d/items?q=Alpha&limit=1" % L1, token=TOK).meta.get("version")
+    check("items: meta.version is the same for every page/filter of an unchanged list (a 40-hex hash of the whole list)", bool(v1) and len(v1) == 40 and v1 == v1b)
+    rr = urllib.request.Request(BASE + "/lists/%d/items" % L1, headers={"Authorization": "Bearer " + TOK})
+    with urllib.request.urlopen(rr) as x:
+        et = x.headers.get("ETag")
+    check("items: ETag + If-None-Match -> 304 (offline cache revalidation)", bool(et) and call("GET", "/lists/%d/items" % L1, token=TOK, headers={"If-None-Match": et}).status == 304)
+    after = ls_snapshot()
+    check("lists: reading never writes (lists, items, property forms and fields unchanged)", before == after, "%s -> %s" % (before, after))
+    sql("update ost_list_items set value='%s Alpha2' where id=%d" % (LS, its["Alpha"]))
+    check("items: meta.version changes when the list content changes (also for a retired item)", call("GET", "/lists/%d/items" % L1, token=TOK).meta.get("version") != v1)
+    v2 = call("GET", "/lists/%d/items" % L1, token=TOK).meta.get("version")
+    sql("update ost_list_items set extra='OLD2' where id=%d" % its["Retired"])
+    check("items: ... including a retired item", call("GET", "/lists/%d/items" % L1, token=TOK).meta.get("version") != v2)
+    check("lists: no token -> 401", call("GET", "/lists", key=None).status == 401 and call("GET", "/lists/%d/items" % L1, key=None).status == 401)
+    check("lists: any agent reads them (policy auth) - the limited agent too", TOK2 is None or (call("GET", "/lists", token=TOK2).status == 200 and call("GET", "/lists/%d/items" % L1, token=TOK2).status == 200))
+    check("lists: no write verbs exist (405, never routed)", all(call(m, p, {}, token=TOK).status == 405 for m, p in (("POST", "/lists"), ("PUT", "/lists"), ("DELETE", "/lists"), ("POST", "/lists/%d/items" % L1), ("PATCH", "/lists/%d/items" % L1), ("DELETE", "/lists/%d/items" % L1))))
+    sql("delete from ost_list_items where list_id in (%d,%d)" % (L1, L2))
+    sql("delete from ost_form_field where form_id=%d" % F1)
+    sql("delete from ost_form where id=%d" % F1)
+    sql("delete from ost_list where id in (%d,%d)" % (L1, L2))
+    check("lists: fixtures cleaned (only this run's rows)", sql("select count(*) from ost_list where name like '%s%%'" % LS)[0] == "0" and sql("select count(*) from ost_form where title like '%s%%'" % LS)[0] == "0")
+
 # ------------------------------------------------------------------ login throttling
 print("\n[login throttling per user + real IP]")
 nm = "e2e-nobody-" + U

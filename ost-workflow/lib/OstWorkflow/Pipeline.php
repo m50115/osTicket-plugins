@@ -9,7 +9,7 @@ namespace OstWorkflow;
  */
 final class Pipeline {
     /** Handlers whose GET responses are ETag-revalidated. */
-    const CACHEABLE = [Handlers\Catalogs::class, Handlers\Forms::class];
+    const CACHEABLE = [Handlers\Catalogs::class, Handlers\Forms::class, Handlers\Lists::class];
 
     static function run($plugin, $config, $rest) {
         Runtime::init($plugin, $config);

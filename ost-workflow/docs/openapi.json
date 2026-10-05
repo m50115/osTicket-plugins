@@ -634,6 +634,65 @@
                 }
             }
         },
+        "/lists": {
+            "get": {
+                "operationId": "listsLists_get_lists",
+                "tags": [
+                    "Lists"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/lists/{id}/items": {
+            "get": {
+                "operationId": "listsItems_get_lists_id_items",
+                "tags": [
+                    "Lists"
+                ],
+                "x-policy": "auth",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/match/contact": {
             "get": {
                 "operationId": "matchingContact_get_match_contact",
