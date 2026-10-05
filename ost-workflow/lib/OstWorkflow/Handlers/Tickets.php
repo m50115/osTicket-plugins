@@ -326,6 +326,27 @@ final class Tickets {
                                 'note' => '`data` = who receives the e-mail; `meta.portal` = who can see the ticket in the portal']);
     }
 
+    /**
+     * Ids of the Custom List items selected in a list-type answer (OW-REQ-66). The core stores the selection as a JSON
+     * object {"<item id>": "<label at save time>"} (or, rarely, a bare id); the ids are its keys, in stored order.
+     * Read-only; empty when nothing is selected. The label is not trusted: it is the mutable text `value` already shows.
+     */
+    static function listItemIds($answer) {
+        $v = $answer ? $answer->get('value') : null;
+        if ($v === null || $v === '') return [];
+        if (is_string($v)) {
+            $j = json_decode($v, true);
+            if (is_array($j)) {
+                $ids = [];
+                foreach (array_keys($j) as $k)
+                    if (is_int($k) || (is_string($k) && ctype_digit($k))) $ids[] = (int) $k;
+                return $ids;
+            }
+            if (ctype_digit($v)) return [(int) $v];
+        }
+        return [];
+    }
+
     /** Dynamic form entries of the ticket (values as osTicket renders them; fields never filled show an empty value). */
     static function fields(Request $req) {
         $t = $req->ctx['ticket'];
@@ -336,13 +357,19 @@ final class Tickets {
                 if (!$f->isVisibleToStaff() || $f->isPresentationOnly() || !$f->isStorable()) continue;
                 $a = $f->getAnswer();
                 $raw = $a ? $a->getValue() : null;
-                $fields[] = [
+                $row = [
                     'id' => (int) $f->get('id'), 'name' => $f->get('name'), 'label' => (string) $f->getLabel(),
                     'type' => $f->get('type'), 'editable' => (bool) $f->isEditableToStaff(),
                     'client_visible' => (bool) $f->isVisibleToUsers(), 'client_editable' => (bool) $f->isEditableToUsers(),
                     'value' => $a ? (string) $a->toString() : '',
                     'raw' => (is_object($raw) || $raw instanceof \Traversable || is_array($raw)) ? null : $raw,
                 ];
+                // OW-REQ-66: a Custom List field also names WHICH items are selected (the label in `value` is mutable).
+                if (preg_match('/^list-(\d+)$/', (string) $f->get('type'), $lm)) {
+                    $row['list_id'] = (int) $lm[1];
+                    $row['value_ids'] = self::listItemIds($a);
+                }
+                $fields[] = $row;
             }
             $forms[] = ['entry_id' => (int) $entry->get('id'), 'form_id' => (int) $entry->get('form_id'),
                         'title' => (string) $entry->getTitle(), 'fields' => $fields];

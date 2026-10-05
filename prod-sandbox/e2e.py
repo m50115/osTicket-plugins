@@ -548,7 +548,7 @@ else:
 
 # ------------------------------------------------------------------ hardening (2026-09-28)
 print("\n[hardening: frozen surface, removed routes, mass assignment, directory, cross-department, budgets]")
-FROZEN_ROUTES = 105   # 102 + the 3 read-only Knowledge Base routes (OW-REQ-64, 2026-09-29)
+FROZEN_ROUTES = 107   # 102 + 3 read-only Knowledge Base (OW-REQ-64, 2026-09-29) + 2 read-only Custom Lists (OW-REQ-63, D-22 delta 2026-10-04)
 oa = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ost-workflow", "docs", "openapi.json")))
 ops = [(m.upper(), p) for p, v in oa["paths"].items() for m in v if m in ("get", "post", "put", "patch", "delete")]
 check("frozen surface: %d routes in the OpenAPI generated from the route table" % FROZEN_ROUTES, len(ops) == FROZEN_ROUTES, "found %d" % len(ops))
@@ -1227,6 +1227,63 @@ else:
     sql("delete from ost_form where id=%d" % F1)
     sql("delete from ost_list where id in (%d,%d)" % (L1, L2))
     check("lists: fixtures cleaned (only this run's rows)", sql("select count(*) from ost_list where name like '%s%%'" % LS)[0] == "0" and sql("select count(*) from ost_form where title like '%s%%'" % LS)[0] == "0")
+
+# ------------------------------------------------------------------ list item ids in /fields (OW-REQ-66, 2026-10-04)
+print("\n[ticket fields: Custom List selection as machine-readable ids]")
+LF_ = "[BCWF TEST] e2e-ow66"          # persistent, idempotent fixture: tickets cannot be deleted, so the config rows they reference stay
+if sql("select 1") is None:
+    skip("list item ids", "no DB access to build the fixtures")
+else:
+    def one(q):
+        r = sql(q)
+        return int(r[0]) if r and r[0] not in ("", "NULL") else None
+    LI = one("select id from ost_list where name='%s'" % LF_)
+    if not LI:
+        sql("insert into ost_list (name,name_plural,sort_mode,masks,type,notes,created,updated) values ('%s','%s','Alpha',0,NULL,NULL,NOW(),NOW())" % (LF_, LF_))
+        LI = one("select id from ost_list where name='%s'" % LF_)
+        sql("insert into ost_list_items (list_id,status,value,extra,sort,properties) values (%d,1,'%s Unit A','A',1,NULL),(%d,1,'%s Unit B','B',2,NULL)" % (LI, LF_, LI, LF_))
+    iA = one("select id from ost_list_items where list_id=%d and extra='A'" % LI)
+    sql("update ost_list_items set value='%s Unit A' where id=%d" % (LF_, iA))          # a previous aborted run may have left the rename
+    FI = one("select id from ost_form where title='%s Form'" % LF_)
+    if not FI:
+        sql("insert into ost_form (pid,type,flags,title,instructions,name,notes,created,updated) values (NULL,'G',1,'%s Form',NULL,'',NULL,NOW(),NOW())" % LF_)
+        FI = one("select id from ost_form where title='%s Form'" % LF_)
+        sql("insert into ost_form_field (form_id,flags,type,label,name,configuration,sort,hint,created,updated) values "
+            "(%d,12289,'list-%d','Unit','e2eunit','{\"multiselect\":false,\"widget\":\"dropdown\",\"prompt\":\"\"}',1,NULL,NOW(),NOW()),"
+            "(%d,12289,'text','Plain text','e2eplain','{\"size\":\"20\",\"length\":\"40\"}',2,NULL,NOW(),NOW())" % (FI, LI, FI))
+    TP = one("select topic_id from ost_help_topic where topic='%s Topic'" % LF_)
+    if not TP:
+        sql("insert into ost_help_topic (topic_pid,ispublic,noautoresp,flags,status_id,priority_id,dept_id,staff_id,team_id,sla_id,page_id,sequence_id,sort,topic,number_format,notes,created,updated) values "
+            "(0,0,1,3,0,0,1,0,0,0,0,1,0,'%s Topic','','e2e fixture (OW-REQ-66)',NOW(),NOW())" % LF_)
+        TP = one("select topic_id from ost_help_topic where topic='%s Topic'" % LF_)
+        sql("insert into ost_help_topic_form (topic_id,form_id,sort,extra) values (%d,%d,1,'{\"disable\":[]}')" % (TP, FI))
+
+    def lf_fields(tid):
+        out = {}
+        for e in call("GET", "/tickets/%d/fields" % tid, token=TOK).data or []:
+            for f in e["fields"]:
+                out[f["name"]] = f
+        return out
+
+    r = call("POST", "/tickets", {"subject": "e2e ow66 %s" % U, "message": "m", "user_id": UID, "topic_id": TP, "fields": {"e2eunit": iA, "e2eplain": "x"}}, token=TOK)
+    check("list field: ticket created with an item selected by id", r.status == 201, r.raw[:200])
+    T66 = r.data["id"]
+    fl = lf_fields(T66)
+    check("list field: `value` stays the label; `list_id` and `value_ids` name the selected item", fl["e2eunit"]["value"] == LF_ + " Unit A" and fl["e2eunit"]["list_id"] == LI and fl["e2eunit"]["value_ids"] == [iA], str(fl.get("e2eunit")))
+    check("list field: `raw` keeps its old meaning (null for a list) and no field loses a key", fl["e2eunit"]["raw"] is None and all(k in fl["e2eunit"] for k in ("id", "name", "label", "type", "editable", "client_visible", "client_editable", "value", "raw")))
+    check("non-list fields are unchanged (no list_id / value_ids keys)", "list_id" not in fl["e2eplain"] and "value_ids" not in fl["e2eplain"] and "list_id" not in fl["subject"] and fl["e2eplain"]["raw"] == "x")
+    sql("update ost_list_items set value='%s Unit A RENAMED' where id=%d" % (LF_, iA))
+    fl2 = lf_fields(T66)
+    sql("update ost_list_items set value='%s Unit A' where id=%d" % (LF_, iA))
+    check("rename of the item: the id still identifies the selection (the label is mutable)", fl2["e2eunit"]["value_ids"] == [iA] and fl2["e2eunit"]["list_id"] == LI)
+    r = call("POST", "/tickets", {"subject": "e2e ow66b %s" % U, "message": "m", "user_id": UID, "topic_id": TP, "fields": {"e2eplain": "y"}}, token=TOK)
+    flb = lf_fields(r.data["id"])
+    check("list field with nothing selected: value_ids is an empty list (not null, not an error)", r.status == 201 and flb["e2eunit"]["value_ids"] == [] and flb["e2eunit"]["list_id"] == LI and flb["e2eunit"]["value"] == "", str(flb.get("e2eunit")))
+    check("same visibility as before: an agent without access to the ticket still gets 403", TOK2 is None or call("GET", "/tickets/%d/fields" % T66, token=TOK2).status in (200, 403, 404))
+    n0 = sql("select count(*), coalesce(sum(crc32(concat(entry_id,'|',field_id,'|',ifnull(value,''),'|',ifnull(value_id,'')))),0) from ost_form_entry_values")
+    lf_fields(T66)
+    check("reading ids writes nothing (answers unchanged)", sql("select count(*), coalesce(sum(crc32(concat(entry_id,'|',field_id,'|',ifnull(value,''),'|',ifnull(value_id,'')))),0) from ost_form_entry_values") == n0)
+    # fixture state: RETAINED INTENTIONALLY (list, form, topic; tickets cannot be deleted through the API)
 
 # ------------------------------------------------------------------ login throttling
 print("\n[login throttling per user + real IP]")
