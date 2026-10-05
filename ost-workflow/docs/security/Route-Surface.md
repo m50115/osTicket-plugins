@@ -2,23 +2,23 @@
 
 > Generado por `prod-sandbox/gen-route-matrix.py` a partir de `docs/openapi.json` (tabla real de rutas) y `docs/security/route-classification.json` (única fuente editable). No editar a mano.
 
-**107 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
+**116 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
 
 ## Por impacto
 
 | Valor | Rutas |
 |---|---|
-| READ_ONLY | 57 |
+| READ_ONLY | 59 |
+| REVERSIBLE_UPDATE | 23 |
 | SECURITY_SENSITIVE | 18 |
-| REVERSIBLE_UPDATE | 18 |
 | APPEND_ONLY | 9 |
-| HIGH_IMPACT_UPDATE | 5 |
+| HIGH_IMPACT_UPDATE | 7 |
 
 ## Por necesidad
 
 | Valor | Rutas |
 |---|---|
-| REQUIRED_BY_DESIGNED_CONSUMER | 83 |
+| REQUIRED_BY_DESIGNED_CONSUMER | 92 |
 | REQUIRED_BY_CORE_WORKFLOW | 15 |
 | NO_CONSUMER_YET | 5 |
 | USEFUL_BUT_NOT_REQUIRED | 4 |
@@ -27,7 +27,7 @@
 
 | Valor | Rutas |
 |---|---|
-| FIELD_OPERATION | 59 |
+| FIELD_OPERATION | 68 |
 | WORKFLOW_OPERATION | 34 |
 | SYSTEM_ADMINISTRATION | 14 |
 
@@ -35,7 +35,7 @@
 
 | Valor | Rutas |
 |---|---|
-| KEEP | 107 |
+| KEEP | 116 |
 
 ## Rutas retiradas de la superficie pública (2026-09-28)
 
@@ -75,6 +75,15 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `GET /knowledge/categories` | R | `auth` | knowledge base (OW-REQ-64) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core. | KEEP |
 | `GET /lists` | R | `auth` | custom lists catalogs: equipment (modules 7, 8), Service Orders FE.4, Quotes catalog, ticket field Equipo (OW-REQ-63) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every custom list (the installed base is visible to every agent, EQ-D3); typed core lists excluded; no notes, masks or writes; reading never creates the property form. limit<=500. | KEEP |
 | `GET /lists/{id}/items` | R | `auth` | custom lists catalogs: equipment (modules 7, 8), Service Orders FE.4, Quotes catalog, ticket field Equipo (OW-REQ-63) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same exposure as /lists; `q` 2-100 chars (core search predicate); retired items only with include_disabled=1; properties by logical name; version = hash of the whole list. No writes. | KEEP |
+| `GET /maintenances` | R | `auth` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every maintenance (no customer data, no secrets; equipment ids and dates only). Incremental cursor by (updated_at, id); limit<=200; filters equipment_id / ticket_id. | KEEP |
+| `POST /maintenances/batch` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | partial (no delete; cancel is manager-only) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create. Max 200 items; each id inserted at most once (client uuid) and (equipment, date) unique among non-cancelled; equipment must be an ENABLED item of the configured Installed Equipment list. Worst case: junk PLANNED rows that a manager cancels. | KEEP |
+| `GET /maintenances/{uuid}` | R | `auth` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same exposure as the list; 404 for an unknown id. | KEEP |
+| `POST /maintenances/{uuid}/cancel` | W | `maintenance.manager` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | HIGH_IMPACT_UPDATE | partial (no delete; a cancelled record is never re-opened: a new one is created) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only; PLANNED only; mandatory reason; the row is kept with its audit; base = status seen. | KEEP |
+| `POST /maintenances/{uuid}/complete` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (manager revert; values kept in changes[]) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create; PLANNED only; completed_on never in the future; evidence_ref must be a published document of the linked Ticket or a completion_note is required; base = status seen. | KEEP |
+| `POST /maintenances/{uuid}/link` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (unlink) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create AND ticket.view on the target Ticket (403 for both missing and inaccessible: no probing); PLANNED without Ticket only; base = ticket_id seen. | KEEP |
+| `POST /maintenances/{uuid}/reschedule` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (base value; old date kept in changes[]) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create; PLANNED only; base = date seen, mandatory reason, uniqueness enforced by the database; append-only audit. | KEEP |
+| `POST /maintenances/{uuid}/revert` | W | `maintenance.manager` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | HIGH_IMPACT_UPDATE | yes (complete again; previous values kept in changes[]) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only; COMPLETED to PLANNED; mandatory reason; completion fields are cleared but preserved in the audit entry. | KEEP |
+| `POST /maintenances/{uuid}/unlink` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (link again) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create; needs no access to the Ticket (an inaccessible Ticket must not trap the record); mandatory reason; PLANNED only; base = ticket_id seen. | KEEP |
 | `GET /match/contact` | R | `auth` | contacts, tickets (match before create) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read. | KEEP |
 | `GET /match/organization` | R | `auth` | contacts, tickets (match before create) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read. | KEEP |
 | `GET /match/ticket` | R | `auth` | contacts, tickets (match before create) | WORKFLOW_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Candidate lookups need the value being looked up; contact/organization matches are charged to the lookup budget; org-by-id answers only for organizations the agent may read. | KEEP |

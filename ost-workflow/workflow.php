@@ -52,7 +52,9 @@ class OstWorkflowPlugin extends Plugin {
 
     function enable() {
         try {
-            return \OstWorkflow\Store::install();
+            // Two tables: the plumbing table and the durable ScheduledMaintenance store (OW-REQ-70); both CREATE IF NOT EXISTS.
+            $ok = \OstWorkflow\Store::install();
+            return \OstWorkflow\Maintenance::install() && $ok;
         } catch (\Throwable $t) {
             global $errors;
             if (is_array($errors))

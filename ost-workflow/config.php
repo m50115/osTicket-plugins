@@ -4,7 +4,7 @@ require_once(INCLUDE_DIR . 'class.forms.php');
 class OstWorkflowConfig extends PluginConfig {
 
     // Bump when PluginConfig keys or the plumbing table change.
-    const SCHEMA_VERSION = 1;
+    const SCHEMA_VERSION = 2;
 
     function getOptions() {
         return array(
@@ -85,6 +85,12 @@ class OstWorkflowConfig extends PluginConfig {
                 'required' => false,
                 'configuration' => array('size' => 60, 'length' => 250),
             )),
+            'installed_equipment_list_id' => new TextboxField(array(
+                'label'    => __('Custom list id of "Installed Equipment"'),
+                'hint'     => __('Preventive maintenance validates that an equipment belongs to this list and is enabled (ACTIVE). Empty = the maintenance store refuses to create records (503).'),
+                'required' => false,
+                'configuration' => array('size' => 6, 'length' => 6),
+            )),
             'modules' => new TextboxField(array(
                 'label'    => __('Enabled app modules (comma separated)'),
                 'default'  => 'tickets,service_orders,pdf_signer,quotes,contacts,support,configuration',
@@ -115,7 +121,7 @@ class OstWorkflowConfig extends PluginConfig {
         foreach (array('min_text_with_pdf','limit_mail_per_hour','limit_uploads_per_hour','limit_pdf_per_hour','limit_lookups_per_hour') as $k)
             if (isset($config[$k]) && $config[$k] !== '' && !ctype_digit((string) $config[$k]))
                 $errors[$k] = __('Must be 0 or a positive integer');
-        foreach (array('default_dept_id','default_topic_id') as $k)
+        foreach (array('default_dept_id','default_topic_id','installed_equipment_list_id') as $k)
             if (!empty($config[$k]) && !ctype_digit((string) $config[$k]))
                 $errors[$k] = __('Must be a numeric id');
         if (!empty($config['brand_color']) && !preg_match('/^#[0-9A-Fa-f]{6}$/', $config['brand_color']))

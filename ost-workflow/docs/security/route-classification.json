@@ -1069,6 +1069,96 @@
    "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
    "recommendation": "KEEP",
    "abuse": "Same exposure as /lists; `q` 2-100 chars (core search predicate); retired items only with include_disabled=1; properties by logical name; version = hash of the whole list. No writes."
+  },
+  "GET /maintenances": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Any logged-in agent reads every maintenance (no customer data, no secrets; equipment ids and dates only). Incremental cursor by (updated_at, id); limit<=200; filters equipment_id / ticket_id."
+  },
+  "GET /maintenances/{uuid}": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Same exposure as the list; 404 for an unknown id."
+  },
+  "POST /maintenances/batch": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "partial (no delete; cancel is manager-only)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "anydept.ticket.create. Max 200 items; each id inserted at most once (client uuid) and (equipment, date) unique among non-cancelled; equipment must be an ENABLED item of the configured Installed Equipment list. Worst case: junk PLANNED rows that a manager cancels."
+  },
+  "POST /maintenances/{uuid}/reschedule": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (base value; old date kept in changes[])",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "anydept.ticket.create; PLANNED only; base = date seen, mandatory reason, uniqueness enforced by the database; append-only audit."
+  },
+  "POST /maintenances/{uuid}/complete": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (manager revert; values kept in changes[])",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "anydept.ticket.create; PLANNED only; completed_on never in the future; evidence_ref must be a published document of the linked Ticket or a completion_note is required; base = status seen."
+  },
+  "POST /maintenances/{uuid}/cancel": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "partial (no delete; a cancelled record is never re-opened: a new one is created)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only; PLANNED only; mandatory reason; the row is kept with its audit; base = status seen."
+  },
+  "POST /maintenances/{uuid}/revert": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "yes (complete again; previous values kept in changes[])",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator or manager of ANY department only; COMPLETED to PLANNED; mandatory reason; completion fields are cleared but preserved in the audit entry."
+  },
+  "POST /maintenances/{uuid}/link": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (unlink)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "anydept.ticket.create AND ticket.view on the target Ticket (403 for both missing and inaccessible: no probing); PLANNED without Ticket only; base = ticket_id seen."
+  },
+  "POST /maintenances/{uuid}/unlink": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70)",
+   "impact": "REVERSIBLE_UPDATE",
+   "reversible": "yes (link again)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "anydept.ticket.create; needs no access to the Ticket (an inaccessible Ticket must not trap the record); mandatory reason; PLANNED only; base = ticket_id seen."
   }
  },
  "removed_2026_09_28": [

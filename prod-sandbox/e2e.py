@@ -548,7 +548,7 @@ else:
 
 # ------------------------------------------------------------------ hardening (2026-09-28)
 print("\n[hardening: frozen surface, removed routes, mass assignment, directory, cross-department, budgets]")
-FROZEN_ROUTES = 107   # 102 + 3 read-only Knowledge Base (OW-REQ-64, 2026-09-29) + 2 read-only Custom Lists (OW-REQ-63, D-22 delta 2026-10-04)
+FROZEN_ROUTES = 116   # 102 + 3 read-only Knowledge Base (OW-REQ-64, 2026-09-29) + 2 read-only Custom Lists (OW-REQ-63, D-22 delta 2026-10-04) + 9 ScheduledMaintenance store (OW-REQ-70, D-22 bounded exception 2026-10-04)
 oa = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ost-workflow", "docs", "openapi.json")))
 ops = [(m.upper(), p) for p, v in oa["paths"].items() for m in v if m in ("get", "post", "put", "patch", "delete")]
 check("frozen surface: %d routes in the OpenAPI generated from the route table" % FROZEN_ROUTES, len(ops) == FROZEN_ROUTES, "found %d" % len(ops))
@@ -1284,6 +1284,262 @@ else:
     lf_fields(T66)
     check("reading ids writes nothing (answers unchanged)", sql("select count(*), coalesce(sum(crc32(concat(entry_id,'|',field_id,'|',ifnull(value,''),'|',ifnull(value_id,'')))),0) from ost_form_entry_values") == n0)
     # fixture state: RETAINED INTENTIONALLY (list, form, topic; tickets cannot be deleted through the API)
+
+# ------------------------------------------------------------------ ScheduledMaintenance store (OW-REQ-70, 2026-10-04)
+print("\n[maintenances: durable ScheduledMaintenance store (OW-REQ-70)]")
+LM_ = "[BCWF TEST] e2e-ow70 Installed"      # persistent get-or-create list; its items are per-run (equipment ids are the isolation)
+if sql("select 1") is None or not TOK3 or not TOK2:
+    skip("maintenances", "needs DB access and agent2/agent3 (E2E-Fixtures.md)")
+else:
+    def m_one(q):
+        r = sql(q)
+        return int(r[0]) if r and r[0] not in ("", "NULL") else None
+
+    MTAB = "ost_workflow_maintenance"
+    LMID = m_one("select id from ost_list where name='%s'" % LM_)
+    if not LMID:
+        sql("insert into ost_list (name,name_plural,sort_mode,masks,type,notes,created,updated) values ('%s','%s','Alpha',0,NULL,NULL,NOW(),NOW())" % (LM_, LM_))
+        LMID = m_one("select id from ost_list where name='%s'" % LM_)
+    sql("insert into ost_list_items (list_id,status,value,extra,sort,properties) values (%d,1,'%s EqA %s',NULL,1,NULL),(%d,1,'%s EqB %s',NULL,2,NULL),(%d,0,'%s EqR %s',NULL,3,NULL)" % (LMID, LM_, U, LMID, LM_, U, LMID, LM_, U))
+    EA, EB, ER = (m_one("select id from ost_list_items where list_id=%d and value='%s %s %s'" % (LMID, LM_, n, U)) for n in ("EqA", "EqB", "EqR"))
+    OTHER = m_one("select id from ost_list_items where list_id is not null and list_id<>%d limit 1" % LMID)     # an item of another custom list
+    CFGNS = (sql("select distinct namespace from ost_config where namespace like 'plugin.%.instance.%' and `key`='signing_secret' limit 1") or [None])[0]
+    check("fixtures: three equipment items (2 enabled, 1 retired) and an item of another list", all([EA, EB, ER, OTHER]) and CFGNS, str((EA, EB, ER, OTHER, CFGNS)))
+
+    def m_setting(val):
+        sql("delete from ost_config where namespace='%s' and `key`='installed_equipment_list_id'" % CFGNS)
+        if val is not None:
+            sql("insert into ost_config (namespace,`key`,value,updated) values ('%s','installed_equipment_list_id','%s',NOW())" % (CFGNS, val))
+
+    m_setting(None)
+    r = call("POST", "/maintenances/batch", {"items": [{"id": str(uuid.uuid4()), "equipment_id": EA, "scheduled_date": "2025-01-10"}]}, token=TOK)
+    check("setting 'installed_equipment_list_id' empty -> batch is refused 503 not_configured (nothing guessed)", r.status == 503 and r.err == "not_configured", r.raw[:160])
+    m_setting(LMID)
+
+    def mid():
+        return str(uuid.uuid4())
+
+    def mrow(i):
+        x = sql("select stored_status,scheduled_date,ifnull(ticket_id,''),ifnull(completed_on,''),ifnull(evidence_ref,''),rev from %s where id='%s'" % (MTAB, i))
+        return x[0].split("\t") if x else None
+
+    def mcount():
+        return int(sql("select count(*) from %s" % MTAB)[0])
+
+    # ---- create: batch, per-item result, validation ------------------------------------------------------------
+    a1, a2, b1, dup, rt, oth, nf, bd, bi = (mid() for _ in range(9))
+    items = [
+        {"id": a1, "equipment_id": EA, "scheduled_date": "2025-03-15"},
+        {"id": a2, "equipment_id": EA, "scheduled_date": "2025-06-15"},
+        {"id": b1, "equipment_id": EB, "scheduled_date": "2025-03-15"},
+        {"id": dup, "equipment_id": EA, "scheduled_date": "2025-03-15"},                  # same (equipment, date) as a1
+        {"id": rt, "equipment_id": ER, "scheduled_date": "2025-03-15"},                   # retired equipment
+        {"id": oth, "equipment_id": OTHER, "scheduled_date": "2025-03-15"},               # item of another list
+        {"id": nf, "equipment_id": 99999999, "scheduled_date": "2025-03-15"},             # no such item
+        {"id": bd, "equipment_id": EA, "scheduled_date": "2025-02-30"},                   # not a DATE
+        {"id": "not-a-uuid", "equipment_id": EA, "scheduled_date": "2025-09-15"},
+    ]
+    n0 = mcount()
+    KEY = "e2e-ow70-" + U
+    r = call("POST", "/maintenances/batch", {"items": items}, token=TOK, key=KEY)
+    res = {x["id"]: x for x in (r.data or [])}
+    check("batch: 200, one result per item in order, counts in meta", r.status == 200 and [x["id"] for x in r.data] == [a1, a2, b1, dup, rt, oth, nf, bd, "not-a-uuid"] and r.meta == {"created": 3, "exists": 0, "rejected": 6}, "%s %s" % (r.meta, [x["id"] for x in r.data]))
+    check("batch: created items are PLANNED with server fields and an audit entry `created`", all(res[i]["result"] == "created" and res[i]["maintenance"]["stored_status"] == "PLANNED" and res[i]["maintenance"]["changes"][0]["kind"] == "created" and res[i]["maintenance"]["created_by"] == 1 for i in (a1, a2, b1)), str(res[a1]))
+    ch = res[a1]["maintenance"]["changes"][0]
+    check("changes[] entry shape: kind, at, by, reason, from, to", set(ch) == {"kind", "at", "by", "reason", "from", "to"} and ch["to"] == {"equipment_id": EA, "scheduled_date": "2025-03-15"} and ch["from"] is None)
+    check("batch: uniqueness (equipment, date) among non-cancelled -> rejected `duplicate` naming the holder", res[dup]["code"] == "duplicate" and res[dup]["details"]["existing_id"] == a1)
+    check("batch: retired equipment -> rejected equipment_retired", res[rt]["code"] == "equipment_retired")
+    check("batch: an item of ANOTHER list -> rejected equipment_not_found", res[oth]["code"] == "equipment_not_found")
+    check("batch: unknown equipment id -> rejected equipment_not_found", res[nf]["code"] == "equipment_not_found")
+    check("batch: invalid DATE (31 Feb) -> rejected invalid_date; non-UUID id -> invalid_id", res[bd]["code"] == "invalid_date" and r.data[8]["code"] == "invalid_id")
+    check("batch: only the three valid items were stored", mcount() - n0 == 3)
+    r2 = call("POST", "/maintenances/batch", {"items": items}, token=TOK, key=KEY)
+    check("idempotency per request: same Idempotency-Key + body -> identical answer, replayed, nothing new", r2.status == 200 and r2.json == r.json and r2.headers.get("Idempotent-Replayed") == "true" and mcount() - n0 == 3)
+    r3 = call("POST", "/maintenances/batch", {"items": items[:3]}, token=TOK)
+    check("idempotency per item: a new request with the same client ids -> `exists` with the stored record, no duplicates", r3.status == 200 and [x["result"] for x in r3.data] == ["exists"] * 3 and r3.data[0]["maintenance"]["id"] == a1 and mcount() - n0 == 3)
+    mixed = call("POST", "/maintenances/batch", {"items": [items[0], {"id": mid(), "equipment_id": EB, "scheduled_date": "2025-09-15"}]}, token=TOK)
+    check("per-item results mix: an existing id and a new one in the same request", [x["result"] for x in mixed.data] == ["exists", "created"])
+    b2 = mixed.data[1]["id"]
+    check("batch: bad shapes -> 422 (no items, empty, over 200)", call("POST", "/maintenances/batch", {}, token=TOK).status == 422 and call("POST", "/maintenances/batch", {"items": []}, token=TOK).status == 422
+          and call("POST", "/maintenances/batch", {"items": [{}] * 201}, token=TOK).status == 422)
+    check("batch: an Idempotency-Key is required (400)", call("POST", "/maintenances/batch", {"items": items[:1]}, token=TOK, key=None).err == "idempotency_key_required")
+
+    # ---- reads ----------------------------------------------------------------------------------------------------
+    r = call("GET", "/maintenances/%s" % a1, token=TOK2)
+    check("read by id: any agent (policy auth), exact DTO keys", r.status == 200 and set(r.data) == {"id", "equipment_id", "scheduled_date", "stored_status", "ticket_id", "completed_on", "completed_by", "evidence_ref", "completion_note", "cancel_reason", "changes", "created_at", "created_by", "updated_at", "updated_by"}, r.raw[:200])
+    check("read by id: unknown -> 404; no token -> 401", call("GET", "/maintenances/%s" % mid(), token=TOK).status == 404 and call("GET", "/maintenances/%s" % a1, key=None).status == 401)
+    r = call("GET", "/maintenances?equipment_id=%d" % EA, token=TOK2)
+    check("read by equipment_id (all states)", r.status == 200 and sorted(x["id"] for x in r.data) == sorted([a1, a2]), r.raw[:200])
+    check("read: filter validation (equipment_id=0 -> 422)", call("GET", "/maintenances?equipment_id=0", token=TOK).status == 422 and call("GET", "/maintenances?cursor=zzzz", token=TOK).status == 422)
+    allm = call("GET", "/maintenances?limit=1", token=TOK)
+    walked = []; cur = None
+    for _ in range(4000):
+        pg = call("GET", "/maintenances?limit=200" + ("&cursor=" + urllib.parse.quote(cur) if cur else ""), token=TOK)
+        walked += pg.data
+        if not pg.meta["has_more"]:
+            break
+        cur = pg.meta["next_cursor"]
+    ids = [x["id"] for x in walked]
+    check("incremental feed: the cursor walks every record once, ordered by (updated_at, id) server-side", len(ids) == len(set(ids)) == mcount() and all(i in ids for i in (a1, a2, b1, b2)), "%d walked, %d ids, %d rows" % (len(walked), len(set(ids)), mcount()))
+    wm = pg.meta["watermark"]
+    check("incremental feed: the last page carries a watermark and `limit` pages with has_more", bool(wm) and allm.meta["has_more"] is True and allm.meta["count"] == 1)
+    check("incremental feed: from the watermark nothing is returned (and the watermark is kept)", call("GET", "/maintenances?cursor=" + urllib.parse.quote(wm), token=TOK).data == [] and call("GET", "/maintenances?cursor=" + urllib.parse.quote(wm), token=TOK).meta["watermark"] == wm)
+
+    # ---- reschedule (agent: anydept.ticket.create), base + conflict ---------------------------------------------
+    tm = call("GET", "/me/permissions", token=TOK2)
+    a2_can_create = any("ticket.create" in d["permissions"] for d in tm.data["departments"])
+    time.sleep(1.1)
+    r = call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-15", "scheduled_date": "2025-03-28", "reason": "client asked"}, token=TOK3)
+    check("reschedule: PLANNED, base = the date seen -> 200 applied, scheduled_date moves, audit entry kind=reschedule from/to/reason/by", r.status == 200 and r.meta["applied"] is True and r.data["scheduled_date"] == "2025-03-28"
+          and r.data["changes"][-1]["kind"] == "reschedule" and r.data["changes"][-1]["from"] == "2025-03-15" and r.data["changes"][-1]["to"] == "2025-03-28" and r.data["changes"][-1]["reason"] == "client asked" and r.data["changes"][-1]["by"] == 3 and r.data["updated_by"] == 3, r.raw[:300])
+    f = call("GET", "/maintenances?cursor=" + urllib.parse.quote(wm), token=TOK)
+    check("incremental feed: after a change, the watermark returns exactly that record", [x["id"] for x in f.data] == [a1] and f.meta["watermark"] != wm)
+    r = call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-28", "scheduled_date": "2025-03-28", "reason": "retry"}, token=TOK3)
+    check("reschedule to the date it already has -> 200 applied=false (no new audit entry)", r.status == 200 and r.meta["applied"] is False and len(r.data["changes"]) == 2)
+    r = call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-15", "scheduled_date": "2025-04-02", "reason": "stale device"}, token=TOK)
+    check("reschedule with a stale base -> 409 conflict with current, base, last_change and the server record", r.status == 409 and r.err == "conflict" and r.details["reason"] == "base_mismatch" and r.details["current"] == "2025-03-28" and r.details["base"] == "2025-03-15" and r.details["last_change"]["kind"] == "reschedule" and r.details["record"]["id"] == a1, r.raw[:300])
+    r = call("POST", "/maintenances/%s/reschedule" % a1, {"scheduled_date": "2025-04-02", "reason": "x"}, token=TOK)
+    check("reschedule without base -> 422; without reason -> 422; bad date -> 422", r.status == 422 and r.json["error"]["field"] == "base"
+          and call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-28", "scheduled_date": "2025-04-02"}, token=TOK).status == 422
+          and call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-28", "scheduled_date": "2025-13-02", "reason": "x"}, token=TOK).status == 422)
+    r = call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-28", "scheduled_date": "2025-06-15", "reason": "clash"}, token=TOK)
+    check("reschedule onto a date held by another non-cancelled maintenance of the same equipment -> 409 duplicate", r.status == 409 and r.details["reason"] == "duplicate" and r.details["existing_id"] == a2, r.raw[:200])
+    r = call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-28", "scheduled_date": "2020-01-05", "reason": "past is allowed"}, token=TOK)
+    check("reschedule into the past is allowed (it becomes overdue on the client)", r.status == 200 and r.data["scheduled_date"] == "2020-01-05")
+    call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2020-01-05", "scheduled_date": "2025-03-28", "reason": "back"}, token=TOK)
+    check("reschedule: concurrent compare-and-swap - rev bumps on each change (no lost update)", int(mrow(a1)[5]) == 4)
+    r = call("POST", "/maintenances/%s/reschedule" % mid(), {"base": "2025-03-28", "scheduled_date": "2025-04-02", "reason": "x"}, token=TOK)
+    check("reschedule an unknown id -> 404", r.status == 404)
+
+    # ---- tickets: link (ticket.view on the target), unlink (no access needed), change = unlink + link ------------------------
+    T1 = call("POST", "/tickets", {"subject": "e2e ow70 own %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK).data["id"]
+    T2 = call("POST", "/tickets", {"subject": "e2e ow70 second %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK).data["id"]
+    TS = call("POST", "/tickets", {"subject": "e2e ow70 sales only %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 2}, token=TOK).data["id"]
+    r = call("POST", "/maintenances/%s/link" % b1, {"base": None, "ticket_id": TS}, token=TOK3)
+    check("link a Ticket the agent cannot see -> 403 (and the maintenance is untouched)", r.status == 403 and mrow(b1)[2] == "", r.raw[:160])
+    r = call("POST", "/maintenances/%s/link" % b1, {"base": None, "ticket_id": 99999999}, token=TOK3)
+    check("link a Ticket that does not exist -> the same 403 (no probing)", r.status == 403)
+    r = call("POST", "/maintenances/%s/link" % b1, {"base": None, "ticket_id": TS}, token=TOK)
+    check("link: the administrator sees every Ticket", r.status == 200 and r.data["ticket_id"] == TS and r.data["changes"][-1]["kind"] == "link" and r.data["changes"][-1]["to"] == TS and r.data["changes"][-1]["from"] is None, r.raw[:200])
+    r = call("POST", "/maintenances/%s/link" % b1, {"base": None, "ticket_id": TS}, token=TOK)
+    check("link again to the same Ticket -> 200 applied=false", r.status == 200 and r.meta["applied"] is False)
+    r = call("POST", "/maintenances/%s/link" % b1, {"base": TS, "ticket_id": T1}, token=TOK)
+    check("link another Ticket while one is linked -> 409 (change = unlink first, with a reason)", r.status == 409 and r.details["reason"] == "ticket_already_linked")
+    r = call("POST", "/maintenances/%s/unlink" % b1, {"base": TS}, token=TOK3)
+    check("unlink without a reason -> 422", r.status == 422)
+    r = call("POST", "/maintenances/%s/unlink" % b1, {"base": T1, "reason": "wrong"}, token=TOK3)
+    check("unlink with a stale base -> 409", r.status == 409 and r.details["current"] == TS)
+    r = call("POST", "/maintenances/%s/unlink" % b1, {"base": TS, "reason": "wrong ticket"}, token=TOK3)
+    check("unlink needs NO access to the Ticket: an agent that cannot see it unlinks it (audit kind=unlink from/to/reason)", r.status == 200 and r.data["ticket_id"] is None and r.data["changes"][-1]["kind"] == "unlink" and r.data["changes"][-1]["from"] == TS and r.data["changes"][-1]["reason"] == "wrong ticket", r.raw[:200])
+    r = call("POST", "/maintenances/%s/unlink" % b1, {"base": TS, "reason": "again"}, token=TOK3)
+    check("unlink with nothing linked -> 200 applied=false", r.status == 200 and r.meta["applied"] is False)
+    r = call("POST", "/maintenances/%s/link" % b1, {"base": None, "ticket_id": T1, "reason": "right one"}, token=TOK3)
+    check("link the right Ticket (visible to the agent) -> 200", r.status == 200 and r.data["ticket_id"] == T1 and r.data["changes"][-1]["reason"] == "right one")
+    check("read by ticket_id", [x["id"] for x in call("GET", "/maintenances?ticket_id=%d" % T1, token=TOK2).data] == [b1])
+    check("link: a stale base (null while a Ticket is linked) -> 409", call("POST", "/maintenances/%s/link" % b1, {"base": None, "ticket_id": T2}, token=TOK).status == 409)
+    check("link: ticket_id must be a positive integer -> 422; base is required", call("POST", "/maintenances/%s/link" % b1, {"base": T1, "ticket_id": "x"}, token=TOK).status == 422 and call("POST", "/maintenances/%s/link" % b1, {"ticket_id": T2}, token=TOK).status == 422)
+
+    # ---- complete: evidence_ref against the linked Ticket's document index; completion_note otherwise -------------------
+    DU70 = str(uuid.uuid4()); DUX = str(uuid.uuid4())
+    check("evidence fixture: published document on the linked Ticket, another on a different Ticket",
+          call("POST", "/tickets/%d/notes" % T1, {"body": "Service document %s" % U, "document": {"uuid": DU70, "version": 1}}, token=TOK).status == 201
+          and call("POST", "/tickets/%d/notes" % T2, {"body": "Foreign document %s" % U, "document": {"uuid": DUX, "version": 1}}, token=TOK).status == 201)
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-16"}, token=TOK3)
+    check("complete: no evidence_ref and no completion_note -> 422 (exception needs a note)", r.status == 422 and r.json["error"]["field"] == "completion_note")
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2999-01-01", "completion_note": "x"}, token=TOK3)
+    check("complete: completed_on in the future (staff time zone) -> 422", r.status == 422 and r.json["error"]["field"] == "completed_on")
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@1" % DUX}, token=TOK3)
+    check("complete: evidence_ref of a document that belongs to ANOTHER Ticket -> 422 foreign_evidence", r.status == 422 and r.details.get("reason") == "foreign_evidence", r.raw[:200])
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@7" % DU70}, token=TOK3)
+    check("complete: evidence_ref of a version that was never published -> 422 foreign_evidence", r.status == 422 and r.details.get("reason") == "foreign_evidence")
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-16", "evidence_ref": "not-a-ref"}, token=TOK3)
+    check("complete: malformed evidence_ref -> 422", r.status == 422 and r.json["error"]["field"] == "evidence_ref")
+    r = call("POST", "/maintenances/%s/complete" % a2, {"base": "PLANNED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@1" % DU70}, token=TOK3)
+    check("complete: evidence_ref on a maintenance without a Ticket -> 422 no_ticket", r.status == 422 and r.details.get("reason") == "no_ticket")
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "CANCELLED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@1" % DU70}, token=TOK3)
+    check("complete with a stale base -> 409", r.status == 409 and r.details["reason"] == "base_mismatch" and r.details["current"] == "PLANNED")
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@1" % DU70.upper()}, token=TOK3)
+    check("complete with a published document of the linked Ticket -> 200 COMPLETED, completed_on/by, evidence_ref (normalized), audit", r.status == 200 and r.data["stored_status"] == "COMPLETED" and r.data["completed_on"] == "2025-03-16" and r.data["completed_by"] == 3
+          and r.data["evidence_ref"] == "doc:%s@1" % DU70 and r.data["changes"][-1]["kind"] == "complete", r.raw[:300])
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@1" % DU70}, token=TOK3)
+    check("complete again with the same data -> 200 applied=false", r.status == 200 and r.meta["applied"] is False)
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-20", "evidence_ref": "doc:%s@1" % DU70}, token=TOK3)
+    check("complete again with a different day (someone else completed it) -> 409", r.status == 409)
+    check("a COMPLETED maintenance cannot be rescheduled, linked or unlinked (409 invalid_state); the Ticket stays",
+          all(call("POST", "/maintenances/%s/%s" % (b1, p), body, token=TOK).details.get("reason") == "invalid_state" for p, body in (
+              ("reschedule", {"base": "2025-03-15", "scheduled_date": "2025-05-01", "reason": "x"}), ("link", {"base": T1, "ticket_id": T2}), ("unlink", {"base": T1, "reason": "x"}))) and mrow(b1)[2] == str(T1))
+    r = call("POST", "/maintenances/%s/complete" % a2, {"base": "PLANNED", "completed_on": "2025-06-16", "completion_note": "done, documented elsewhere"}, token=TOK3)
+    check("complete without Ticket and without evidence, with a completion_note -> 200 (the only way with no Ticket)", r.status == 200 and r.data["stored_status"] == "COMPLETED" and r.data["completion_note"] == "done, documented elsewhere" and r.data["evidence_ref"] is None)
+
+    # ---- manager-only actions: cancel, revert (administrator, or manager of ANY department) --------------------------------
+    r = call("POST", "/maintenances/%s/cancel" % b2, {"base": "PLANNED", "reason": "no longer needed"}, token=TOK3)
+    check("cancel by an agent who is not a manager -> 403 manager_required", r.status == 403 and r.details.get("reason") == "manager_required" and mrow(b2)[0] == "PLANNED", r.raw[:160])
+    r = call("POST", "/maintenances/%s/revert" % a2, {"base": "COMPLETED", "reason": "mistake"}, token=TOK3)
+    check("revert by an agent who is not a manager -> 403", r.status == 403 and mrow(a2)[0] == "COMPLETED")
+    check("limited agent (agent2): create/complete follow `anydept.ticket.create`; manager actions are 403",
+          call("POST", "/maintenances/%s/cancel" % b2, {"base": "PLANNED", "reason": "x"}, token=TOK2).status == 403
+          and call("POST", "/maintenances/batch", {"items": [{"id": mid(), "equipment_id": EB, "scheduled_date": "2025-10-15"}]}, token=TOK2).status == (200 if a2_can_create else 403))
+    r = call("POST", "/maintenances/%s/cancel" % b2, {"base": "PLANNED"}, token=TOK)
+    check("cancel without a reason -> 422", r.status == 422)
+    r = call("POST", "/maintenances/%s/cancel" % b2, {"base": "COMPLETED", "reason": "x"}, token=TOK)
+    check("cancel with a stale base -> 409", r.status == 409 and r.details["current"] == "PLANNED")
+    r = call("POST", "/maintenances/%s/cancel" % a2, {"base": "COMPLETED", "reason": "x"}, token=TOK)
+    check("cancel a COMPLETED one -> 409 invalid_state (revert it first; no COMPLETED->CANCELLED)", r.status == 409 and r.details["reason"] == "invalid_state")
+    r = call("POST", "/maintenances/%s/cancel" % b2, {"base": "PLANNED", "reason": "no longer needed"}, token=TOK)
+    check("cancel by the administrator -> 200 CANCELLED, cancel_reason, audit; the row is kept", r.status == 200 and r.data["stored_status"] == "CANCELLED" and r.data["cancel_reason"] == "no longer needed" and r.data["changes"][-1]["kind"] == "cancel" and mrow(b2) is not None, r.raw[:200])
+    check("cancel again -> 200 applied=false", call("POST", "/maintenances/%s/cancel" % b2, {"base": "PLANNED", "reason": "again"}, token=TOK).meta.get("applied") is False)
+    check("a CANCELLED maintenance is read-only and never goes back to PLANNED (reschedule/complete/revert/link -> 409 or no-op)",
+          call("POST", "/maintenances/%s/reschedule" % b2, {"base": "2025-09-15", "scheduled_date": "2025-09-16", "reason": "x"}, token=TOK).status == 409
+          and call("POST", "/maintenances/%s/complete" % b2, {"base": "CANCELLED", "completed_on": "2025-09-16", "completion_note": "x"}, token=TOK).status == 409
+          and call("POST", "/maintenances/%s/revert" % b2, {"base": "CANCELLED", "reason": "x"}, token=TOK).status == 409
+          and call("POST", "/maintenances/%s/link" % b2, {"base": None, "ticket_id": T1}, token=TOK).status == 409)
+    r = call("POST", "/maintenances/batch", {"items": [{"id": mid(), "equipment_id": EB, "scheduled_date": "2025-09-15"}]}, token=TOK)
+    check("uniqueness ignores CANCELLED: the same (equipment, date) can be created again after the cancel", r.status == 200 and r.data[0]["result"] == "created", r.raw[:200])
+    sql("update ost_department set manager_id=3 where id=3")          # agent3 manages ANOTHER department (its own is dept 1)
+    try:
+        r = call("POST", "/maintenances/%s/revert" % a2, {"base": "COMPLETED"}, token=TOK3)
+        check("revert without a reason -> 422", r.status == 422)
+        r = call("POST", "/maintenances/%s/revert" % a2, {"base": "PLANNED", "reason": "mistake"}, token=TOK3)
+        check("revert with a stale base -> 409", r.status == 409 and r.details["current"] == "COMPLETED")
+        r = call("POST", "/maintenances/%s/revert" % a2, {"base": "COMPLETED", "reason": "completed by mistake"}, token=TOK3)
+        c = r.data["changes"][-1] if r.data else {}
+        check("revert by a manager of ANY department -> 200 PLANNED; scheduled_date and ticket_id unchanged; completion fields cleared", r.status == 200 and r.data["stored_status"] == "PLANNED" and r.data["scheduled_date"] == "2025-06-15"
+              and r.data["completed_on"] is None and r.data["completed_by"] is None and r.data["completion_note"] is None and r.data["evidence_ref"] is None, r.raw[:300])
+        check("revert: the previous completion values, reason, by and at are kept in changes[] (kind=revert)", c.get("kind") == "revert" and c["reason"] == "completed by mistake" and c["by"] == 3 and c["from"]["completed_on"] == "2025-06-16"
+              and c["from"]["completion_note"] == "done, documented elsewhere" and c["from"]["completed_by"] == 3 and c["to"] == {"stored_status": "PLANNED"} and c["at"].endswith("Z"), str(c))
+        check("revert again -> 200 applied=false (already PLANNED)", call("POST", "/maintenances/%s/revert" % a2, {"base": "COMPLETED", "reason": "again"}, token=TOK3).meta.get("applied") is False)
+        r = call("POST", "/maintenances/%s/cancel" % a2, {"base": "PLANNED", "reason": "manager cancels"}, token=TOK3)
+        check("cancel by a manager of any department -> 200", r.status == 200 and r.data["stored_status"] == "CANCELLED")
+        r = call("POST", "/maintenances/%s/revert" % b1, {"base": "COMPLETED", "reason": "evidence replaced"}, token=TOK)
+        check("revert by the administrator (completed with evidence) -> 200; evidence_ref preserved in the audit entry only", r.status == 200 and r.data["evidence_ref"] is None and r.data["changes"][-1]["from"]["evidence_ref"] == "doc:%s@1" % DU70 and r.data["ticket_id"] == T1)
+        check("after a revert the unique slot still holds (uniqueness counts it)", call("POST", "/maintenances/batch", {"items": [{"id": mid(), "equipment_id": EB, "scheduled_date": "2025-03-15"}]}, token=TOK).data[0]["code"] == "duplicate")
+    finally:
+        sql("update ost_department set manager_id=0 where id=3")
+
+    # ---- the retired-equipment rules apply to NEW records only (design §11/§19.2) --------------------------------------
+    sql("update ost_list_items set status=0 where id=%d" % EB)
+    r = call("POST", "/maintenances/batch", {"items": [{"id": mid(), "equipment_id": EB, "scheduled_date": "2025-12-20"}]}, token=TOK)
+    check("equipment retired AFTER the schedule: new records are rejected equipment_retired", r.data[0]["code"] == "equipment_retired")
+    r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-17", "evidence_ref": "doc:%s@1" % DU70}, token=TOK)
+    check("...but existing ones can still be completed (the work happened)", r.status == 200 and r.data["stored_status"] == "COMPLETED")
+    sql("update ost_list_items set status=1 where id=%d" % EB)
+
+    # ---- durability: table, no purge, no delete ----------------------------------------------------------------------
+    meta = sql("select table_name from information_schema.tables where table_schema=database() and table_name='%s'" % MTAB)
+    check("table exists, separate from the idempotency table, with the schema_version column", meta == [MTAB] and sql("select count(*) from information_schema.columns where table_schema=database() and table_name='%s' and column_name='schema_version'" % MTAB) == ["1"])
+    check("every row carries schema_version=1", sql("select count(*) from %s where schema_version<>1" % MTAB) == ["0"])
+    n_before = mcount()
+    sql("update ost_workflow_idempotency set expires=DATE_SUB(NOW(), INTERVAL 1 DAY) where idem_key='%s'" % KEY)
+    check("durability setup: the batch's idempotency record is now expired", sql("select count(*) from ost_workflow_idempotency where idem_key='%s' and expires<NOW()" % KEY) == ["1"])
+    pr = subprocess.run([os.path.expanduser("~/development/ost-prod/php80/bin/php"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "purge-check.php"), os.path.expanduser("~/development/ost-sandbox/app")], capture_output=True, text=True)
+    check("the plugin's cron purge ran and removed the expired idempotency record ...", pr.stdout.strip() == "purged" and sql("select count(*) from ost_workflow_idempotency where idem_key='%s'" % KEY) == ["0"], pr.stdout + pr.stderr)
+    check("... and did not touch a single maintenance (no TTL, no purge)", mcount() == n_before and mrow(a1) is not None and mrow(b1) is not None)
+    check("replaying the purged key is a fresh request, and the per-item ids still make it idempotent (no duplicates)", [x["result"] for x in call("POST", "/maintenances/batch", {"items": items[:3]}, token=TOK, key=KEY).data] == ["exists"] * 3 and mcount() == n_before)
+    check("no hard delete: no maintenance route uses DELETE (405) and every id created in this run is still stored",
+          call("DELETE", "/maintenances/%s" % a1, token=TOK).status == 405 and all(mrow(i) is not None for i in (a1, a2, b1, b2)))
+    check("enable() is idempotent: re-running it keeps the table and its rows", subprocess.run([os.path.expanduser("~/development/ost-prod/php80/bin/php"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin-admin.php"), os.path.expanduser("~/development/ost-sandbox/app"), "enable"], capture_output=True, text=True).stdout.startswith("enabled")
+          and mcount() == n_before)
+    # fixture state: list, equipment items, tickets and maintenance rows are RETAINED INTENTIONALLY (rows are never deleted by design)
 
 # ------------------------------------------------------------------ login throttling
 print("\n[login throttling per user + real IP]")
