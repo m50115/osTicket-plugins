@@ -525,7 +525,15 @@ for _ in range(20):
     if not cur:
         break
 check("sync: a new note is detected (ticket.updated does not move)", TID in delta)
-check("sync: visible ids", TID in call("GET", "/sync/visible-ticket-ids", token=TOK).data)
+# /sync/visible-ticket-ids is cursor-paged (1000 per page): follow next_cursor, or the new ticket falls on page 2 once the sandbox holds > 1000 tickets (FC-1 F-06, tooling fix)
+vis, vcur = [], None
+for _ in range(50):
+    rv = call("GET", "/sync/visible-ticket-ids" + ("?cursor=" + urllib.parse.quote(vcur) if vcur else ""), token=TOK)
+    vis += rv.data or []
+    vcur = rv.meta.get("next_cursor")
+    if not rv.meta.get("has_more") or not vcur:
+        break
+check("sync: visible ids (all pages)", TID in vis and len(vis) == len(set(vis)))
 check("sync: organizations window", call("GET", "/sync/organizations?since=2020-01-01T00:00:00Z", token=TOK).status == 200)
 check("sync: tasks", call("GET", "/sync/tasks", token=TOK).status == 200)
 r = call("GET", "/reports/support?group_by=status", token=TOK)
