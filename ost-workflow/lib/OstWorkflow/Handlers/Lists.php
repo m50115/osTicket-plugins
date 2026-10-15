@@ -54,9 +54,10 @@ final class Lists {
      * enumeration, configuration details, or administrative secrets.
      */
     static function roles(Request $req) {
-        $id = Runtime::intSetting('installed_equipment_list_id', 0);
-        if ($id < 1)
+        $raw = trim((string) Runtime::setting('installed_equipment_list_id', ''));
+        if ($raw === '' || !ctype_digit($raw) || (int) $raw < 1)
             throw new ApiError('not_configured', "The plugin setting 'installed_equipment_list_id' (Installed Equipment list) is not set");
+        $id = (int) $raw;
         try {
             $list = self::custom($id);
         } catch (ApiError $e) {

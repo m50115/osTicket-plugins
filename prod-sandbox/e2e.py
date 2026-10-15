@@ -1200,6 +1200,12 @@ else:
         sql("insert into ost_config (namespace,`key`,value,updated) values ('%s','installed_equipment_list_id','99999999',NOW())" % cfgns)
         invalid = call("GET", "/lists/roles", token=TOK)
         check("list roles: invalid configured list -> 503 not_configured", invalid.status == 503 and invalid.err == "not_configured", invalid.raw[:160])
+        for malformed_value in ("24abc", "24.0"):
+            sql("delete from ost_config where namespace='%s' and `key`='installed_equipment_list_id'" % cfgns)
+            sql("insert into ost_config (namespace,`key`,value,updated) values ('%s','installed_equipment_list_id','%s',NOW())" % (cfgns, malformed_value))
+            malformed = call("GET", "/lists/roles", token=TOK)
+            check("list roles: malformed configured value %s -> 503 not_configured" % malformed_value,
+                  malformed.status == 503 and malformed.err == "not_configured", malformed.raw[:160])
         sql("delete from ost_config where namespace='%s' and `key`='installed_equipment_list_id'" % cfgns)
         sql("insert into ost_config (namespace,`key`,value,updated) values ('%s','installed_equipment_list_id','%s',NOW())" % (cfgns, cfgvalue))
     else:
