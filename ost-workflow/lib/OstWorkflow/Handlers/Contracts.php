@@ -165,7 +165,7 @@ final class Contracts {
                         'as_of_local_date' => $local, 'tz' => Repo::tz(), 'results' => $results]);
     }
 
-    /** GET /contracts/catalogs - every classification catalog version (immutable, numbered), oldest first. Policy auth: labels only. */
+    /** GET /contracts/catalogs - every installation-scoped classification catalog version, oldest first. Policy auth: labels/descriptions only. */
     static function catalogs(Request $req) {
         Repo::ready();
         $items = array_map(['OstWorkflow\Contracts', 'catalogDto'], Repo::catalogs());
@@ -546,8 +546,9 @@ final class Contracts {
     // ==================================================================
 
     /**
-     * POST /contracts/catalogs {base: latest number seen | null, reason, codes:[{code, label, treatment}]}
-     * Publishes a NEW immutable ClassificationCatalogVersion (number = base + 1). 201.
+     * POST /contracts/catalogs {base, reason, catalog_key?, codes:[{code, label, description?, treatment}]}
+     * Publishes a NEW immutable ClassificationCatalogVersion (number = base + 1). A catalog_key
+     * identifies an installation-scoped five-level catalog; omitted keeps legacy catalog compatibility.
      */
     static function publishCatalog(Request $req) {
         Repo::ready();
@@ -558,15 +559,24 @@ final class Contracts {
         $codes = $req->input('codes');
         if (!is_array($codes) || !$codes || array_keys($codes) !== range(0, count($codes) - 1) || count($codes) > 200)
             throw ApiError::validation("'codes' must be a list of 1 to 200 {code, label, treatment}", 'codes');
+        $catalogKey = $req->input('catalog_key');
+        if ($catalogKey !== null && (!is_string($catalogKey) || !preg_match('/^[A-Za-z0-9_.-]{1,40}$/', $catalogKey)))
+            throw ApiError::validation("'catalog_key' must be 1-40 ASCII letters, numbers, _, ., or -", 'catalog_key');
+        if ($catalogKey !== null && count($codes) !== 5)
+            throw ApiError::validation("a configurable catalog must contain exactly five codes", 'codes');
         $seen = []; $norm = [];
         foreach ($codes as $c) {
             if (!is_array($c) || !isset($c['code'], $c['label'], $c['treatment']) || !is_string($c['code']) || !is_string($c['label'])
                     || !preg_match('/^[A-Za-z0-9_.-]{1,40}$/', $c['code']) || trim($c['label']) === '' || mb_strlen($c['label']) > 120
                     || !in_array($c['treatment'], ['COVERED', 'BILLABLE', 'EXCLUDED', 'OTHER'], true))
                 throw ApiError::validation("each code needs code (A-Z a-z 0-9 _ . -, max 40), label (max 120) and treatment COVERED|BILLABLE|EXCLUDED|OTHER", 'codes');
+            $description = $c['description'] ?? null;
+            if ($catalogKey !== null && (!is_string($description) || trim($description) === '' || mb_strlen($description) > 500))
+                throw ApiError::validation("each configurable code needs a non-empty description (max 500)", 'codes.description');
             if (isset($seen[$c['code']])) throw ApiError::validation('Duplicate code ' . $c['code'], 'codes');
             $seen[$c['code']] = true;
-            $norm[] = ['code' => $c['code'], 'label' => trim($c['label']), 'treatment' => $c['treatment']];
+            $norm[] = ['code' => $c['code'], 'label' => trim($c['label']),
+                       'description' => $description === null ? null : trim($description), 'treatment' => $c['treatment']];
         }
         $staffId = (int) $req->staff->getId();
         $cur = Repo::latestCatalogNumber();
@@ -579,7 +589,8 @@ final class Contracts {
         if ($cur !== $base) throw $fail();
         $id = Repo::uuid();
         Db::q('INSERT IGNORE INTO ' . Repo::table('catalog') . ' SET id=' . Db::esc($id) . ', schema_version=' . Repo::SCHEMA_VERSION
-            . ', number=' . ($cur === null ? 1 : $cur + 1) . ', codes=' . Db::esc(json_encode($norm, JSON_UNESCAPED_UNICODE))
+            . ', number=' . ($cur === null ? 1 : $cur + 1) . ', catalog_key=' . Repo::lit($catalogKey)
+            . ', codes=' . Db::esc(json_encode($norm, JSON_UNESCAPED_UNICODE))
             . ', reason=' . Db::esc($reason) . ', registered_at=UTC_TIMESTAMP(6), registered_by=' . $staffId);
         if (Db::affected() !== 1) throw $fail();
         return Res::created(Repo::catalogDto(Repo::catalog($id)));

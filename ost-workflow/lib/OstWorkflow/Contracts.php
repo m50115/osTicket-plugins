@@ -124,6 +124,7 @@ final class Contracts {
             `id` CHAR(36) NOT NULL,
             `schema_version` SMALLINT UNSIGNED NOT NULL DEFAULT ' . self::SCHEMA_VERSION . ',
             `number` INT UNSIGNED NOT NULL,
+            `catalog_key` VARCHAR(40) NULL,
             `codes` MEDIUMTEXT NOT NULL,
             `reason` TEXT NOT NULL,
             `registered_at` DATETIME(6) NOT NULL,
@@ -170,6 +171,11 @@ final class Contracts {
         ) ' . $ct;
         $ok = true;
         foreach ($sql as $s) $ok = (db_query($s) !== false) && $ok;
+        // Additive upgrade for installations that already have the V1 table.
+        // Existing rows remain legacy catalogs with a null catalog_key.
+        if ($ok && !Store::row('SHOW COLUMNS FROM ' . self::table('catalog') . ' LIKE ' . Store::esc('catalog_key'))) {
+            $ok = db_query('ALTER TABLE `' . self::table('catalog') . '` ADD COLUMN `catalog_key` VARCHAR(40) NULL AFTER `number`') !== false;
+        }
         return $ok;
     }
 
@@ -405,7 +411,9 @@ final class Contracts {
     }
 
     static function catalogDto(array $r) {
-        return ['catalog_version_ref' => $r['id'], 'number' => (int) $r['number'], 'codes' => json_decode((string) $r['codes'], true) ?: [],
+        return ['catalog_version_ref' => $r['id'], 'number' => (int) $r['number'],
+                'catalog_key' => isset($r['catalog_key']) && $r['catalog_key'] !== '' ? $r['catalog_key'] : null,
+                'scope' => 'INSTALLATION', 'codes' => json_decode((string) $r['codes'], true) ?: [],
                 'reason' => $r['reason'], 'registered_at' => self::utc($r['registered_at']), 'registered_by' => (int) $r['registered_by']];
     }
 

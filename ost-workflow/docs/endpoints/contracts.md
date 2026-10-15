@@ -76,7 +76,14 @@ Desired state already in place → `200` with `meta.applied=false`. Otherwise `4
 
 **Event:** `id, seq, contract_ref, contract_version_ref, kind, actor, at, reason, detail`. Kinds: `CREATED, DRAFT_DISCARDED, VERSION_ACTIVATED, VERSION_VOIDED, TERMINATED, TERMINATION_REVOKED, DOCUMENT_ADDED, DOCUMENT_SUPERSEDED, HEADER_EDITED` (`HEADER_EDITED.detail` = `before`/`after`). Events inform; they never decide state.
 
-**Catalog version:** `catalog_version_ref, number, codes[{code,label,treatment COVERED|BILLABLE|EXCLUDED|OTHER}], reason, registered_at/by`.
+**Catalog version:** `catalog_version_ref, number, catalog_key, scope (INSTALLATION), codes[{code,label,description,treatment COVERED|BILLABLE|EXCLUDED|OTHER}], reason, registered_at/by`.
+
+For M6 Tier catalogs, `catalog_key` is the stable installation-scoped identity and
+`codes` contains exactly five entries with stable codes, configurable labels and
+descriptions. Existing rows without `catalog_key` remain readable as legacy
+catalogs and are not eligible as a new five-level FS-11 catalog. Published
+versions are immutable; changing terminology publishes a new version and never
+rewrites historical references.
 
 **Basis:** `id, supersedes, consumer ("ticket:<id>"), purpose ("RS_CLASSIFICATION"), as_of, as_of_local_date, tz, service_line, equipment_ref, organization_id_at_evaluation, result, contract_ref, contract_version_ref, terms_hash, treatment, tier_code, response_objective_hours, catalog_version_ref, code, ticket_sla_id_at_evaluation, ticket_sla_name_at_evaluation, seen_contract_version_ref, seen_result, seen_cache_etag, seen_mismatch, detail, recorded_at/by, reason`.
 

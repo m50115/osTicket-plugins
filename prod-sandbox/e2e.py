@@ -1714,6 +1714,53 @@ else:
     r = call("POST", "/contracts/catalogs", {"base": latest, "reason": "stale device", "codes": codes}, token=TOK)
     check("catalog publish with a stale base -> 409 base_mismatch (current = latest number)", r.status == 409 and r.details["reason"] == "base_mismatch" and r.details["current"] == (latest or 0) + 1 and r.details["base"] == latest, r.raw[:200])
     check("an immutable catalog version: no route edits or deletes it (PUT/PATCH/DELETE -> 404/405)", all(call(m, "/contracts/catalogs", {}, token=TOK).status in (404, 405) for m in ("PUT", "PATCH", "DELETE")))
+    tier_codes = [{"code": "ACME_T%d" % i, "label": "Empresa %d" % i, "description": "Terminología configurable %d" % i, "treatment": "OTHER"} for i in range(1, 6)]
+    tier_key = "E2E_CUSTOM_%s" % U
+    tier = call("POST", "/contracts/catalogs", {"base": (latest or 0) + 1, "reason": "five-level configurable catalog (e2e %s)" % U, "catalog_key": tier_key, "codes": tier_codes}, token=TOK)
+    check("configurable catalog -> five stable codes, labels/descriptions, installation scope", tier.status == 201 and tier.data["catalog_key"] == tier_key and tier.data["scope"] == "INSTALLATION" and len(tier.data["codes"]) == 5 and tier.data["codes"][0]["description"] == "Terminología configurable 1", tier.raw[:300])
+    check("configurable catalog rejects non-five-level or missing description", call("POST", "/contracts/catalogs", {"base": tier.data.get("number"), "reason": "bad", "catalog_key": "BAD", "codes": codes}, token=TOK).status == 422)
+    listed_tiers = call("GET", "/contracts/catalogs", token=TOK).data
+    check("catalog version remains immutable and discoverable after custom terminology", any(x.get("catalog_version_ref") == tier.data.get("catalog_version_ref") and x.get("catalog_key") == tier_key for x in listed_tiers), str(listed_tiers[-1:] if listed_tiers else []))
+
+    # Initial M6 templates are installation-scoped M10 catalog versions.  They
+    # are published through the same manager path as customer terminology;
+    # Flutter consumes them by key and never embeds their labels.
+    initial_tier_templates = {
+        "BESTCARE": [
+            ("BC_T1", "Capacitación / Operación", "Missing training, operator mistakes and incorrect use."),
+            ("BC_T2", "Biomédica / Mantenimiento", "Hospital biomedical engineering or maintenance responsibility."),
+            ("BC_T3", "Infraestructura / Terceros", "Networks, infrastructure, installation or third-party responsibility."),
+            ("BC_T4", "Falla técnica general", "Genuine general technical failure of medical equipment."),
+            ("BC_T5", "Alta especialidad", "High-specialty failures involving specialist systems."),
+        ],
+        "DICOMSERVER": [
+            ("DS_T1", "Usuario", "Basic operator training and operational tasks."),
+            ("DS_T2", "Superusuario", "Advanced user, study administration and superuser configuration."),
+            ("DS_T3", "Terceros", "Networks, modality, electrical, infrastructure or external responsibility."),
+            ("DS_T4", "Sistema", "DicomServer software, portal, server and owned-function failures."),
+            ("DS_T5", "Solicitudes / Desarrollo", "New features, integrations, enhancements or development requests."),
+        ],
+    }
+    template_refs = {}
+    template_base = tier.data.get("number") if tier.status == 201 else (latest or 0) + 1
+    for template_key, template_rows in initial_tier_templates.items():
+        template_codes = [{"code": c, "label": l, "description": d, "treatment": "OTHER"} for c, l, d in template_rows]
+        published = call("POST", "/contracts/catalogs", {
+            "base": template_base,
+            "reason": "M6 initial tier template %s (e2e %s)" % (template_key, U),
+            "catalog_key": template_key,
+            "codes": template_codes,
+        }, token=TOK)
+        template_refs[template_key] = published.data.get("catalog_version_ref") if published.status == 201 else None
+        template_base = published.data.get("number") if published.status == 201 else template_base
+        check("initial %s template -> five stable levels, labels/descriptions and installation scope" % template_key,
+              published.status == 201 and published.data.get("catalog_key") == template_key and published.data.get("scope") == "INSTALLATION"
+              and len(published.data.get("codes", [])) == 5 and published.data["codes"][0].get("description"), published.raw[:300])
+    templates = call("GET", "/contracts/catalogs", token=TOK).data
+    check("initial M6 templates remain discoverable by stable key and preserve distinct Tier 5 semantics",
+          all(any(x.get("catalog_key") == key and x.get("catalog_version_ref") == ref for x in templates) for key, ref in template_refs.items())
+          and any(x.get("catalog_key") == "BESTCARE" and x.get("codes", [{}])[-1].get("code") == "BC_T5" for x in templates)
+          and any(x.get("catalog_key") == "DICOMSERVER" and x.get("codes", [{}])[-1].get("code") == "DS_T5" for x in templates), str(templates[-4:]))
 
     # ---- create ----------------------------------------------------------------------------------------------------------
     V1 = ver("2026-01-01", "2026-12-31", listed(E2, E1), ent(RS="INCLUDED_UNLIMITED", PM=PMQ), response_policy=dict(GOLD, native_sla_ref=SLA1), catalog_version_ref=CAT1)

@@ -1208,7 +1208,7 @@
    "reversible": "n/a",
    "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
    "recommendation": "KEEP",
-   "abuse": "Any logged-in agent: classification catalog versions hold only codes, labels and a treatment (no customer or commercial data). Small, immutable, numbered."
+   "abuse": "Any logged-in agent: installation-scoped classification catalog versions hold stable keys, codes, labels, descriptions and treatment (no customer or commercial data). Small, immutable, numbered."
   },
   "POST /contracts/catalogs": {
    "category": "WORKFLOW_OPERATION",
