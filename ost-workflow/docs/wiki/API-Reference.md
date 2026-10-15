@@ -58,6 +58,7 @@ OW-REQ-63 (delta D-22 autorizado el 2026-10-04). Detalle: [lists.md](../endpoint
 | Método | Ruta | Permiso |
 |---|---|---|
 | `GET` | `/workflow/v1/lists` | `auth` |
+| `GET` | `/workflow/v1/lists/roles` | `auth` |
 | `GET` | `/workflow/v1/lists/{id}/items` | `auth` |
 
 ## Mantenimientos programados (almacén propio)

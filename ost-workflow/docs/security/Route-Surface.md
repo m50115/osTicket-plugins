@@ -2,13 +2,13 @@
 
 > Generado por `prod-sandbox/gen-route-matrix.py` a partir de `docs/openapi.json` (tabla real de rutas) y `docs/security/route-classification.json` (única fuente editable). No editar a mano.
 
-**133 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
+**134 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
 
 ## Por impacto
 
 | Valor | Rutas |
 |---|---|
-| READ_ONLY | 66 |
+| READ_ONLY | 67 |
 | REVERSIBLE_UPDATE | 27 |
 | SECURITY_SENSITIVE | 18 |
 | APPEND_ONLY | 12 |
@@ -18,7 +18,7 @@
 
 | Valor | Rutas |
 |---|---|
-| REQUIRED_BY_DESIGNED_CONSUMER | 109 |
+| REQUIRED_BY_DESIGNED_CONSUMER | 110 |
 | REQUIRED_BY_CORE_WORKFLOW | 15 |
 | NO_CONSUMER_YET | 5 |
 | USEFUL_BUT_NOT_REQUIRED | 4 |
@@ -27,7 +27,7 @@
 
 | Valor | Rutas |
 |---|---|
-| FIELD_OPERATION | 68 |
+| FIELD_OPERATION | 69 |
 | WORKFLOW_OPERATION | 51 |
 | SYSTEM_ADMINISTRATION | 14 |
 
@@ -35,7 +35,7 @@
 
 | Valor | Rutas |
 |---|---|
-| KEEP | 133 |
+| KEEP | 134 |
 
 ## Rutas retiradas de la superficie pública (2026-09-28)
 
@@ -89,6 +89,7 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `GET /knowledge/articles/{id}` | R | `auth` | knowledge base (OW-REQ-64) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core. | KEEP |
 | `GET /knowledge/categories` | R | `auth` | knowledge base (OW-REQ-64) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every article/category, as the SCP does (no per-article ACL in the core); no notes, attachments or writes; answer HTML sanitized by the core. | KEEP |
 | `GET /lists` | R | `auth` | custom lists catalogs: equipment (modules 7, 8), Service Orders FE.4, Quotes catalog, ticket field Equipo (OW-REQ-63) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every custom list (the installed base is visible to every agent, EQ-D3); typed core lists excluded; no notes, masks or writes; reading never creates the property form. limit<=500. | KEEP |
+| `GET /lists/roles` | R | `auth` | M7 Equipment / Installed Base | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Authenticated agents receive only the installation-scoped configured role identity; no list enumeration, names, configuration or secrets. Missing/invalid configuration returns 503 not_configured. | KEEP |
 | `GET /lists/{id}/items` | R | `auth` | custom lists catalogs: equipment (modules 7, 8), Service Orders FE.4, Quotes catalog, ticket field Equipo (OW-REQ-63) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same exposure as /lists; `q` 2-100 chars (core search predicate); retired items only with include_disabled=1; properties by logical name; version = hash of the whole list. No writes. | KEEP |
 | `GET /maintenances` | R | `auth` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every maintenance (no customer data, no secrets; equipment ids and dates only). Incremental cursor by (updated_at, id); limit<=200; filters equipment_id / ticket_id. | KEEP |
 | `POST /maintenances/batch` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | partial (no delete; cancel is manager-only) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create. Max 200 items; each id inserted at most once (client uuid) and (equipment, date) unique among non-cancelled; equipment must be an ENABLED item of the configured Installed Equipment list. Worst case: junk PLANNED rows that a manager cancels. | KEEP |

@@ -5,7 +5,24 @@ OW-REQ-63 (APPROVED V1 consumer requirement, msolis 2026-09-29; D-22 bounded exc
 | Route | Policy | Notes |
 |---|---|---|
 | `GET /lists?limit=&cursor=` | `auth` | Custom lists by id, each with its property schema. |
+| `GET /lists/roles` | `auth` | Installation-scoped semantic list roles; currently resolves `installed_equipment`. |
 | `GET /lists/{id}/items?q=&include_disabled=&limit=&cursor=` | `auth` | Items of one custom list by id. Unknown list, or a typed core list (e.g. `ticket-status`) → 404. |
+
+## Semantic roles
+
+`GET /lists/roles` resolves installation configuration without deriving a role
+from a mutable list name or enumerating lists. A configured valid response is:
+
+```json
+{"data":{"installed_equipment":{"list_id":24}},"meta":{}}
+```
+
+The number is installation-specific and is never a product default. If
+`installed_equipment_list_id` is absent, non-positive, not a custom list, or no
+longer exists, the route returns `503` with `error.code = "not_configured"`.
+The route is read-only, requires the normal authenticated-agent policy, and
+exposes no plugin configuration or secrets. Existing list and item routes are
+unchanged.
 
 Only **custom** lists (`type` IS NULL) are exposed. The core's typed lists have their own semantics and routes (`/statuses`).
 

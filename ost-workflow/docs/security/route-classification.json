@@ -1060,6 +1060,16 @@
    "recommendation": "KEEP",
    "abuse": "Any logged-in agent reads every custom list (the installed base is visible to every agent, EQ-D3); typed core lists excluded; no notes, masks or writes; reading never creates the property form. limit<=500."
   },
+  "GET /lists/roles": {
+   "category": "FIELD_OPERATION",
+   "rw": "R",
+   "consumer": "M7 Equipment / Installed Base",
+   "impact": "READ_ONLY",
+   "reversible": "n/a",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Authenticated agents receive only the installation-scoped configured role identity; no list enumeration, names, configuration or secrets. Missing/invalid configuration returns 503 not_configured."
+  },
   "GET /lists/{id}/items": {
    "category": "FIELD_OPERATION",
    "rw": "R",

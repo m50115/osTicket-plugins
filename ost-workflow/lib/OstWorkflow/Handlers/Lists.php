@@ -5,6 +5,7 @@ use OstWorkflow\ApiError;
 use OstWorkflow\Contacts;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
+use OstWorkflow\Runtime;
 
 /**
  * Custom Lists of osTicket, read-only (OW-REQ-63). osTicket stays the authority: no table, no index, no write.
@@ -27,6 +28,7 @@ final class Lists {
     static function routes() {
         return [
             ['GET', '/lists',                              'lists', ['policy' => 'auth']],
+            ['GET', '/lists/roles',                        'roles', ['policy' => 'auth']],
             ['GET', '/lists/(?P<id>\d+)/items',            'items', ['policy' => 'auth']],
         ];
     }
@@ -43,6 +45,28 @@ final class Lists {
         if (!$l || $l->type)
             throw ApiError::notFound('list');
         return $l;
+    }
+
+    /**
+     * GET /lists/roles
+     * Resolve installation-owned semantic catalog roles without deriving them
+     * from mutable list names. The response intentionally contains no list
+     * enumeration, configuration details, or administrative secrets.
+     */
+    static function roles(Request $req) {
+        $id = Runtime::intSetting('installed_equipment_list_id', 0);
+        if ($id < 1)
+            throw new ApiError('not_configured', "The plugin setting 'installed_equipment_list_id' (Installed Equipment list) is not set");
+        try {
+            $list = self::custom($id);
+        } catch (ApiError $e) {
+            if ($e->errorCode === 'not_found')
+                throw new ApiError('not_configured', "The configured Installed Equipment list is not available");
+            throw $e;
+        }
+        return Res::ok([
+            'installed_equipment' => ['list_id' => (int) $list->getId()],
+        ]);
     }
 
     /** The list's item properties as a schema: [{name, label, type}] in form order. No write: no auto-created form. */

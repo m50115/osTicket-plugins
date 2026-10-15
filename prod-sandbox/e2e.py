@@ -556,7 +556,7 @@ else:
 
 # ------------------------------------------------------------------ hardening (2026-09-28)
 print("\n[hardening: frozen surface, removed routes, mass assignment, directory, cross-department, budgets]")
-FROZEN_ROUTES = 133   # 102 + 3 read-only Knowledge Base (OW-REQ-64, 2026-09-29) + 2 read-only Custom Lists (OW-REQ-63, D-22 delta 2026-10-04) + 9 ScheduledMaintenance store (OW-REQ-70, D-22 bounded exception 2026-10-04) + 17 Contracts store (OW-REQ-71, D-22 bounded exception 2026-10-04)
+FROZEN_ROUTES = 134   # 133 existing routes + the approved read-only semantic list-role resolver for M7
 oa = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ost-workflow", "docs", "openapi.json")))
 ops = [(m.upper(), p) for p, v in oa["paths"].items() for m in v if m in ("get", "post", "put", "patch", "delete")]
 check("frozen surface: %d routes in the OpenAPI generated from the route table" % FROZEN_ROUTES, len(ops) == FROZEN_ROUTES, "found %d" % len(ops))
@@ -1187,6 +1187,23 @@ else:
     mine = {x["id"]: x for x in (r.data or [])}
     check("lists: 200 with data/meta envelope", r.status == 200 and isinstance(r.data, list) and "has_more" in r.meta and "next_cursor" in r.meta)
     check("lists: exact field allowlist; the fixture list is there with its item count (incl. retired) and no notes", L1 in mine and all(set(x) == LIST_KEYS for x in r.data) and mine[L1]["item_count"] == 4 and "SECRET-NOTE" not in r.raw, str(mine.get(L1)))
+    cfgrow = sql("select concat(namespace, '\\t', value) from ost_config where namespace like 'plugin.%.instance.%' and `key`='installed_equipment_list_id' limit 1")
+    if cfgrow and '\t' in cfgrow[0]:
+        cfgns, cfgvalue = cfgrow[0].split('\t', 1)
+        expected_role = int(cfgvalue) if str(cfgvalue).isdigit() else 0
+        role = call("GET", "/lists/roles", token=TOK)
+        check("list roles: configured Installed Equipment role is exact, installation-scoped and non-enumerating",
+              role.status == 200 and role.data == {"installed_equipment": {"list_id": expected_role}} and set(role.data) == {"installed_equipment"}, str(role.data))
+        sql("delete from ost_config where namespace='%s' and `key`='installed_equipment_list_id'" % cfgns)
+        missing = call("GET", "/lists/roles", token=TOK)
+        check("list roles: missing configuration -> 503 not_configured", missing.status == 503 and missing.err == "not_configured", missing.raw[:160])
+        sql("insert into ost_config (namespace,`key`,value,updated) values ('%s','installed_equipment_list_id','99999999',NOW())" % cfgns)
+        invalid = call("GET", "/lists/roles", token=TOK)
+        check("list roles: invalid configured list -> 503 not_configured", invalid.status == 503 and invalid.err == "not_configured", invalid.raw[:160])
+        sql("delete from ost_config where namespace='%s' and `key`='installed_equipment_list_id'" % cfgns)
+        sql("insert into ost_config (namespace,`key`,value,updated) values ('%s','installed_equipment_list_id','%s',NOW())" % (cfgns, cfgvalue))
+    else:
+        skip("list roles", "no Installed Equipment configuration fixture")
     check("lists: property schema by logical name / label / type, in form order", mine[L1]["properties"] == [{"name": "serial", "label": "Serial number", "type": "text"}, {"name": "notes", "label": "Free notes", "type": "memo"}], str(mine[L1]["properties"]))
     check("lists: a list without a property form has an empty schema and none is created by reading", mine[L2]["properties"] == [] and sql("select count(*) from ost_form where type='L%d'" % L2)[0] == "0")
     check("lists: typed core lists (ticket-status) are not custom catalogs", 1 not in mine and all(x["id"] != 1 for x in r.data))

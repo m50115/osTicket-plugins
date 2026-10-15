@@ -1351,6 +1351,30 @@
                 }
             }
         },
+        "/lists/roles": {
+            "get": {
+                "operationId": "listsRoles_get_lists_roles",
+                "tags": [
+                    "Lists"
+                ],
+                "x-policy": "auth",
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\":{\"installed_equipment\":{\"list_id\":number}},\"meta\":{}}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/lists/{id}/items": {
             "get": {
                 "operationId": "listsItems_get_lists_id_items",
