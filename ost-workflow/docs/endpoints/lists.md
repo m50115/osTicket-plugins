@@ -14,7 +14,7 @@ OW-REQ-63 (APPROVED V1 consumer requirement, msolis 2026-09-29; D-22 bounded exc
 from a mutable list name or enumerating lists. A configured valid response is:
 
 ```json
-{"data":{"installed_equipment":{"list_id":24}},"meta":{}}
+{"data":{"installed_equipment":{"list_id":24}}}
 ```
 
 The number is installation-specific and is never a product default. If

@@ -1360,7 +1360,7 @@
                 "x-policy": "auth",
                 "responses": {
                     "200": {
-                        "description": "Success: {\"data\":{\"installed_equipment\":{\"list_id\":number}},\"meta\":{}}"
+                        "description": "Success: {\"data\":{\"installed_equipment\":{\"list_id\":number}}}"
                     },
                     "default": {
                         "description": "Typed error",
