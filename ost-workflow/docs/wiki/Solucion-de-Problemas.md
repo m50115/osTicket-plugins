@@ -25,3 +25,4 @@ Síntomas y su causa. Todos se reprodujeron en el sandbox, salvo el último, que
 | Error fatal "Cannot declare class" en todo el sitio | dos phars o dos filas con las mismas clases | deje un solo phar `ost-workflow.phar` y una sola fila |
 
 Para un `500`, use el `request_id` de la respuesta para localizar la línea en el registro de errores de PHP (`[ost-workflow] … request_id=…`).
+| `400` con HTML «URL not supported» aunque la lista diga `Workflow API (1)` | la instancia se creó con el **Status por defecto (Disabled)**, o el plugin está Disabled | abra la instancia y póngala en Enabled; compruebe plugin `Active`; ver `doc/bestcare-plugin-lifecycle-and-deploy.md` |

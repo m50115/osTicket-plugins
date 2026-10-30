@@ -25,6 +25,15 @@ This will compile a PHAR file for the plugin directory. The PHAR will be
 named `plugin.phar` and can be dropped into the osTicket `plugins/` folder
 directly.
 
+BestCare: plugins, instancias y despliegue
+==========================================
+
+Antes de escribir o desplegar un plugin (`mobile-api`, `ost-workflow` y los siguientes), lea
+[`doc/bestcare-plugin-lifecycle-and-deploy.md`](doc/bestcare-plugin-lifecycle-and-deploy.md): cuándo
+registrar rutas en `init()` o en `bootstrap()`, por qué el «Add New Instance» de osTicket crea la
+instancia **Disabled**, qué significa cada respuesta HTTP y la receta de alta con sandbox primero
+(`prod-sandbox/ui-plugin-flow.py`).
+
 Translating
 ===========
 

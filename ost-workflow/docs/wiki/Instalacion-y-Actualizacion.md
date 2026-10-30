@@ -28,6 +28,7 @@ Para un artefacto de despliegue use `prod-sandbox/build-artifact.sh`: estampa el
 | Trusted proxy IPs / CIDRs | Proxies de confianza para leer `X-Forwarded-For` (bloqueo de login). Ponga las direcciones de su balanceador. |
 | Enabled app modules, brand name/color | Los publica `GET /config`. |
 
+   **Trampa del panel (verificada el 2026-10-30):** el formulario «Add New Instance» trae **Status = Disabled** por defecto; póngalo en **Enabled** al crearla (o edítela después). El número `(1)` de la lista de plugins no significa que esté activa. Para ensayarlo antes de producción: `prod-sandbox/ui-plugin-flow.py`. Guía general: `doc/bestcare-plugin-lifecycle-and-deploy.md`.
 4. Compruebe: `GET /workflow/v1/ping` → `200 {"data":{"status":"ok"}}` y, con un token, `GET /workflow/v1/config` (revise `plugin_version` y `build_sha`).
 
 ## 3. Activar y desactivar
