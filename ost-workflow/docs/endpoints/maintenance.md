@@ -20,14 +20,14 @@ Items are created **internal and not enabled** (status 2): no form dropdown offe
 - **Visibility:** a journal is written before the swap and is ignored until a swap references it; journals of attempts that did not commit are marked `extra='orphan'` (forensics only).
 - **Durable:** no TTL, no purge (`Store::purge` only touches the idempotency table), nothing is ever deleted by the plugin; it lives in the osTicket database, so the normal database backup includes it. Items are read **by id**: an SCP "delete" of an item (which only clears its `list_id`) or "disable" never hides a record.
 - **Timestamps:** the database clock (`UTC_TIMESTAMP(6)`, as before), stored with microseconds, strictly increasing per record; served as ISO-8601 `Z`.
-- **Capacity:** one plan item is a MySQL `TEXT` (64 KB): about **375 records per equipment** (all states). Beyond that, creating answers `413 too_large` (`details.reason = plan_full`) and nothing is written (checked before any write). Sandbox 1 maximum today: 118 records on one equipment.
+- **Capacity:** one plan item is a MySQL `TEXT` (64 KB): about **396 records per equipment** (all states; measured in sandbox 2; the serverless harness, with longer synthetic records, fills at 375). Beyond that, creating answers `413 too_large` (`details.reason = plan_full`) and nothing is written (checked before any write). Sandbox 1 maximum today: 118 records on one equipment.
 - **Not a catalog:** `GET /lists` omits the store list and `GET /lists/{id}/items` answers 404 for it.
 
 ### Preparation (once, native, in the SCP)
 
 1. *Admin › Manage › Lists › Add New List*: name e.g. `BCW Scheduled Maintenance (ost-workflow)`, no properties, no items.
 2. Plugin instance settings: `maintenance_list_id` = that list's id; `installed_equipment_list_id` = the Installed Equipment list (must differ).
-3. **Never** open an item of that list and press *Save*, import items into it, or delete the list: the item form rewrites `properties`. A damaged plan is detected and answered `503 not_configured` (never served as empty); recovery is the database backup.
+3. After that, nobody uses the SCP on this list. Do **not** open its items, press *Save*, delete items, import into it or delete the list, and limit who can reach *Admin › Manage › Lists* (see *Manual SCP edits of the store list* under Known limits).
 
 Unset or invalid `maintenance_list_id`, the Installed Equipment list in its place, or a list whose configuration holds other data: every maintenance route answers `503 not_configured` (nothing is guessed or adopted).
 
@@ -97,10 +97,15 @@ Procedure (`prod-sandbox/m8-migrate.py`, HTTP only, never the database): `export
 
 ## Known limits of the native store (residuals, see the review of 2026-11-16)
 
-- **Capacity per equipment (~375 records, all states):** the plan row never shrinks (cancelled records and audit references stay). Once full, **every** write to that equipment, transitions included, answers `413 too_large plan_full` (checked before writing). Not reachable with today's data (max 118); an archive of closed records is the planned remedy.
+- **Capacity per equipment (~396 records, all states, measured):** the plan row never shrinks (cancelled records and audit references stay). Once full, **every** write to that equipment, transitions included, answers `413 too_large plan_full` (checked before writing). Not reachable with today's data (max 118); an archive of closed records is the planned remedy.
 - **Registry:** about 4 600 equipments per store list (`413 too_large registry_full` beyond, checked before writing).
 - **Cost:** an unfiltered feed page and each batch attempt read every plan of the store (O(store) per request; the retired table used indexes). Fine at today's size (55 plans); to be measured in the sandbox spike.
-- **SCP:** pressing *Save* on a store item rewrites it; the plan is then reported damaged and **every** unfiltered feed page and batch answers 503 until the item is restored from backup.
+- **Manual SCP edits of the store list: an administrative operation OUTSIDE the functional contract of M8.** Every M8 operation goes Flutter → M16 Outbox → this API; the SCP is used only once, to create the empty list (Preparation). Manipulating the native store by hand is not supported, and this is what it does (measured in sandbox 2 on a disposable list, 2026-11-16):
+  - *Save* on an item, even with nothing changed (`ajax.php/list/<id>/item/<iid>/update` → `saveListItem` → `DynamicListItem::setConfiguration`), rewrites its `properties` with the list's form (`[]`) and clears `extra`; `status` is kept. A store item has no column the form leaves alone that could hold its JSON (`value`/`extra` are `varchar(255)` and rewritten too, `sort` is rewritten by the list page's ordering).
+  - *Delete* of an item only clears its `list_id` (`DynamicListItem::delete`); the engine reads items by id, so the data stays readable. Deleting the **list** removes the registry.
+  - **Detection:** an overwritten plan, journal or registry is never served as empty or guessed: the routes that read it answer `503 not_configured` ("the maintenance store is damaged … restore it from the database backup"). An overwritten **plan** fails every unfiltered feed page and every batch (they read all plans); an overwritten **journal** fails the feed pages, GETs and writes that need that record's audit; `GET /maintenances/{id}` and writes of records whose plan and journals are intact keep working.
+  - **Recovery:** restore the affected rows of `ost_list_items` (or the `ost_list` row for the registry) from the database backup; nothing else is needed (no cache, no rebuild). The plugin offers no repair route on purpose.
+  - **Prevention:** do not open, save or delete items of the store list; restrict *Admin › Manage › Lists* to the administrators who configured it.
 - **Same id under two equipments:** only two concurrent creates of one client id with different equipment (never the app). The later copy retracts itself when it sees the earlier one; if the earlier commits after that check, both stay stored but every reader resolves the id to the earlier copy (the other is never served and still holds its date slot).
 - **Feed window:** live writes are stamped with the database clock right before their journal and swap (milliseconds, vs microseconds for the table); an incremental reader could miss a record committed inside that window. The app walks the full feed and does not use `watermark`.
 - **Contract deltas:** under contention a lost swap is re-evaluated (it can answer 200 where the table answered 409 `base_mismatch` with null `current`/`base`); 16 lost swaps in a row answer `409 locked busy`; `413 too_large` is new.
