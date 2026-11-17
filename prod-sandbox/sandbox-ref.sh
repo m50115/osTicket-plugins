@@ -82,6 +82,24 @@ cmd_verify_core() {
   diff -rq "$t" "$APP" | grep -vE 'include/ost-config.php|include/plugins/ost-workflow.phar|include/plugins/\.keep' || echo "core: identical to $CORE_REF (only ost-config.php and the plugin phar differ)"
 }
 
+# everything after `start`: plugin install, native bootstrap (lists/topics/settings), test accounts and equipment fixtures.
+# Accounts: agent2 (role 3), agent3 (role 2), agent2fa (role 3 + e-mail 2FA), bcwqa (role 2, directory perms), bcwview (role 4),
+# bcwmgr (administrator, dept 3). Passwords are generated into $SANDBOX_HOME/e2e-fixtures/<user>.env (0600).
+cmd_setup_config() {
+  [ -f "$APP/include/plugins/ost-workflow.phar" ] || die "no phar in the app tree (setup <phar> first)"
+  db_ok || die "sandbox not started"
+  local PHP="$PHP80 -d display_errors=1 -d error_reporting=22527" FIX="$SANDBOX_HOME/e2e-fixtures"
+  mkdir -p "$FIX"; chmod 700 "$FIX"
+  "$PHP80" "$HERE/plugin-admin.php" "$APP" install plugins/ost-workflow.phar | tail -1
+  $PHP "$HERE/bootstrap-config.php" | tail -12
+  mk() { "$PHP80" "$HERE/create-agent.php" "$@" --out="$FIX/$1.env" | grep -v credentials || true; }
+  mk agent2 3 --dept=1; mk agent3 2 --dept=1; mk agent2fa 3 --dept=1 --2fa=email
+  mk bcwqa 2 --dept=1; mk bcwview 4 --dept=1; mk bcwmgr 1 --dept=3 --admin
+  "$PHP80" "$HERE/grant-perms.php" bcwqa user.create,user.edit,org.create,org.edit
+  $PHP "$HERE/bootstrap-fixtures.php" | tail -3
+  log "tables: $(cmd_sql "show tables like '%workflow%'" | tail -n +2 | tr '\n' ' ')"
+}
+
 cmd_teardown() {
   [ -d "$SANDBOX_HOME" ] || { log "nothing to remove"; return; }
   case "$SANDBOX_HOME" in */development/ost-sandbox|*/ost-sandbox-*) ;; *) die "refusing to remove an unexpected path: $SANDBOX_HOME";; esac
@@ -91,6 +109,6 @@ cmd_teardown() {
 
 case "${1:-}" in
   setup) shift; cmd_setup "$@";; start) cmd_start;; stop) cmd_stop;; status) cmd_status;; sql) cmd_sql "${2:?query}";;
-  verify-core) cmd_verify_core;; teardown) cmd_teardown;;
+  verify-core) cmd_verify_core;; setup-config) cmd_setup_config;; teardown) cmd_teardown;;
   *) sed -n 2,5p "$0"; exit 2;;
 esac
