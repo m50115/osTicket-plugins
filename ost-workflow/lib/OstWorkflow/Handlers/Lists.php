@@ -42,9 +42,15 @@ final class Lists {
     private static function custom($id) {
         self::load();
         $l = \DynamicList::lookup((int) $id);
-        if (!$l || $l->type)
+        if (!$l || $l->type || (int) $l->getId() === self::storeListId())
             throw ApiError::notFound('list');
         return $l;
+    }
+
+    /** The maintenance store list (plugin internal storage, OW-REQ-70) is not a catalog: never listed nor served. */
+    private static function storeListId() {
+        $raw = trim((string) Runtime::setting(\OstWorkflow\Maintenance::SETTING_STORE, ''));
+        return ctype_digit($raw) ? (int) $raw : 0;
     }
 
     /**
@@ -89,6 +95,7 @@ final class Lists {
         $limit = $req->intQuery('limit', self::LIMIT_DEFAULT, 1, self::LIMIT_MAX);
         $after = Contacts::cursorId($req);
         $qs = \DynamicList::objects()->filter(['type__isnull' => true]);
+        if ($store = self::storeListId()) $qs = $qs->exclude(['id' => $store]);
         if ($after) $qs = $qs->filter(['id__gt' => $after]);
         $items = []; $more = false; $last = 0;
         foreach ($qs->order_by('id')->limit($limit + 1) as $l) {

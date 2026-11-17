@@ -2,64 +2,74 @@
 namespace OstWorkflow;
 
 /**
- * Durable store of ScheduledMaintenance (OW-REQ-70, Preventive Maintenance module 8). The ONE plugin table that holds
- * business truth that cannot be rebuilt from osTicket: a maintenance commitment that has no Ticket yet.
+ * ScheduledMaintenance store (OW-REQ-70, Preventive Maintenance module 8) on NATIVE osTicket storage: no plugin table.
+ * Storage is one dedicated Custom List (MaintenanceListStore); the rules, the encodings and the compare-and-swap engine
+ * live here; Handlers/Maintenances.php keeps the routes and the state machine (unchanged API, unchanged DTO).
  *
- * Durability (MUST V1 point 1): its own table, separate from the plumbing table of Store; NO TTL and no purge (Store::purge
- * only touches the idempotency table); never dropped on disable/uninstall; created idempotently in enable() beside
- * Store::install() (never in init/bootstrap); `schema_version` per row for the migrations the plugin does not have yet;
- * it lives in the osTicket database, so the normal database backup includes it. Rows are never deleted: a maintenance is
- * CANCELLED instead (its audit stays).
+ * Layout (all JSON, ASCII-only: json_encode escapes non-ASCII, so the core's utf8 columns hold any text):
+ *   registry  (list.configuration)  {"bcw":"BCW_PMREG|1","rev":n,"plans":{"<equipment_id>":<plan item id>}}
+ *   plan      (one item / equipment){"bcw":"BCW_PM|1","eq":<equipment_id>,"rev":n,"r":{"<uuid>":core}}
+ *   journal   (one item / write)    {"bcw":"BCW_PMJ|1","id":"<uuid>","eq":<equipment_id>,"c":[change...],"x":{...}}
+ *   core = {d: scheduled_date, s: stored_status, t?: ticket_id, ca/ua: created/updated 'Y-m-d H:i:s.uuuuuu' UTC,
+ *           cb/ub: staff, co?/cy?/e?: completed_on/completed_by/evidence_ref, nn?: journal holding completion_note,
+ *           xr?: journal holding cancel_reason, j: [journal ids, in order]}
  *
- * Uniqueness (equipment_id, scheduled_date) among non-cancelled rows is enforced by the database: `active_date` repeats
- * `scheduled_date` while the row is not CANCELLED and is NULL afterwards, and a UNIQUE key spans (equipment_id, active_date)
- * (NULLs never collide). Writes use `INSERT IGNORE` / `UPDATE IGNORE` + a `rev` compare-and-swap so a race answers a
- * typed conflict instead of a database error (which the core would log and mail as a system error).
- *
- * All timestamps are stored in UTC with microseconds (own table: no osTicket DB-timezone ambiguity).
+ * Guarantees (same as the retired table, now enforced by single-row compare-and-swap):
+ *   - uniqueness (equipment_id, scheduled_date) among non-cancelled records: the whole equipment lives in ONE plan row and
+ *     every write to it is a swap of that row -> two writers can never both take a slot;
+ *   - no lost update: a write re-reads and re-evaluates its rules (incl. the client's `base`) until its swap lands, so the
+ *     outcome is the one of some sequential order (the retired `rev` CAS answered a lost race with 409; a retry that
+ *     finds the record unchanged now simply applies);
+ *   - a write is visible only once its plan swap lands; a journal is written before and is unreferenced (ignored) until then;
+ *   - nothing is ever deleted; `updated_at` comes from the database clock (as before) and is strictly increasing per record.
  */
 final class Maintenance {
-    const SCHEMA_VERSION = 1;
-    const SETTING_LIST = 'installed_equipment_list_id';
-    const PLANNED = 'PLANNED';
+    const SETTING_LIST   = 'installed_equipment_list_id';
+    const SETTING_STORE  = 'maintenance_list_id';
+    const SETTING_IMPORT = 'maintenance_import_enabled';
+    const PLANNED   = 'PLANNED';
     const COMPLETED = 'COMPLETED';
     const CANCELLED = 'CANCELLED';
+    const REG     = 'BCW_PMREG|1';
+    const PLAN    = 'BCW_PM|1';
+    const JOURNAL = 'BCW_PMJ|1';
+    /** MySQL TEXT holds 65535 bytes; keep a margin. */
+    const ITEM_MAX = 65000;
+    const ATTEMPTS = 16;
 
-    static function table() { return TABLE_PREFIX . 'workflow_maintenance'; }
+    /** @var MaintenanceStore|null */
+    private static $store;
 
-    /** CREATE TABLE IF NOT EXISTS: safe to run any number of times. Called from enable(). */
-    static function install() {
-        $sql = 'CREATE TABLE IF NOT EXISTS `' . self::table() . '` (
-            `id` CHAR(36) NOT NULL,
-            `schema_version` SMALLINT UNSIGNED NOT NULL DEFAULT ' . self::SCHEMA_VERSION . ',
-            `equipment_id` INT UNSIGNED NOT NULL,
-            `scheduled_date` DATE NOT NULL,
-            `active_date` DATE NULL,
-            `stored_status` VARCHAR(10) NOT NULL DEFAULT \'PLANNED\',
-            `ticket_id` INT UNSIGNED NULL,
-            `completed_on` DATE NULL,
-            `completed_by` INT UNSIGNED NULL,
-            `evidence_ref` VARCHAR(80) NULL,
-            `completion_note` TEXT NULL,
-            `cancel_reason` TEXT NULL,
-            `changes` MEDIUMTEXT NOT NULL,
-            `rev` INT UNSIGNED NOT NULL DEFAULT 1,
-            `created_at` DATETIME(6) NOT NULL,
-            `created_by` INT UNSIGNED NOT NULL,
-            `updated_at` DATETIME(6) NOT NULL,
-            `updated_by` INT UNSIGNED NOT NULL,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `uq_equipment_active` (`equipment_id`, `active_date`),
-            KEY `idx_updated` (`updated_at`, `id`),
-            KEY `idx_ticket` (`ticket_id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4';
-        return db_query($sql) !== false;
+    // ------------------------------------------------------------------ configuration
+
+    /** Tests inject an in-memory store; null restores the native one. */
+    static function useStore(MaintenanceStore $s = null) { self::$store = $s; }
+
+    static function listId() {
+        $raw = trim((string) Runtime::setting(self::SETTING_STORE, ''));
+        if ($raw === '' || !ctype_digit($raw) || (int) $raw < 1)
+            throw new ApiError('not_configured', "The plugin setting 'maintenance_list_id' (maintenance store list) is not set");
+        if ((int) $raw === Runtime::intSetting(self::SETTING_LIST, 0))
+            throw new ApiError('not_configured', "The plugin setting 'maintenance_list_id' must be a dedicated list, not the Installed Equipment list");
+        return (int) $raw;
     }
 
-    /** 503 when the table was never created (plugin updated without a disable/enable). */
+    /** @return MaintenanceStore */
+    static function store() {
+        if (!self::$store) {
+            $id = self::listId();
+            self::$store = new MaintenanceListStore($id);
+        }
+        return self::$store;
+    }
+
+    /** 503 when the store list is not configured or not usable (the analog of the retired "table not installed"). */
     static function ready() {
-        if (!Store::row('SHOW TABLES LIKE ' . Store::esc(self::table())))
-            throw new ApiError('not_configured', 'The maintenance store is not installed: disable and enable the plugin once');
+        self::registry();
+    }
+
+    static function importEnabled() {
+        return in_array(strtolower(trim((string) Runtime::setting(self::SETTING_IMPORT, ''))), ['1', 'yes', 'true', 'on'], true);
     }
 
     // ------------------------------------------------------------------ equipment
@@ -76,34 +86,208 @@ final class Maintenance {
         return $it->isEnabled() ? 'ACTIVE' : 'RETIRED';
     }
 
+    /** Is the agent an administrator or the manager of ANY department (decision B of the design)? */
+    static function isManagerOfAny(\Staff $s) {
+        if ($s->isAdmin()) return true;
+        require_once(INCLUDE_DIR . 'class.dept.php');
+        return (bool) \Dept::objects()->filter(['manager_id' => (int) $s->getId()])->exists();
+    }
+
+    // ------------------------------------------------------------------ encodings
+
+    private static function enc(array $v) {
+        $s = json_encode($v);
+        if (!is_string($s)) throw new ApiError('internal_error', 'Unable to encode the maintenance store');
+        return $s;
+    }
+
+    private static function damaged($what) {
+        return new ApiError('not_configured', "The maintenance store is damaged ($what was changed outside the plugin); restore it from the database backup");
+    }
+
+    /** @return array ['raw' => string, 'rev' => int, 'plans' => [eq => item id]] */
+    static function registry() {
+        $raw = self::store()->registry();
+        $t = trim($raw);
+        if ($t === '' || $t === '[]' || $t === '{}' || $t === 'null')
+            return ['raw' => $raw, 'rev' => 0, 'plans' => []];
+        $d = json_decode($raw, true);
+        if (!is_array($d) || ($d['bcw'] ?? null) !== self::REG || !isset($d['rev'], $d['plans']) || !is_array($d['plans']))
+            throw new ApiError('not_configured', "The list named by 'maintenance_list_id' is not a maintenance store (its configuration holds other data)");
+        $plans = [];
+        foreach ($d['plans'] as $eq => $id) $plans[(int) $eq] = (int) $id;
+        return ['raw' => $raw, 'rev' => (int) $d['rev'], 'plans' => $plans];
+    }
+
+    private static function encodeRegistry($rev, array $plans) {
+        ksort($plans);
+        $p = [];
+        foreach ($plans as $eq => $id) $p[(string) $eq] = (int) $id;
+        return self::enc(['bcw' => self::REG, 'rev' => (int) $rev, 'plans' => (object) $p]);
+    }
+
+    static function emptyPlan($eq) { return ['eq' => (int) $eq, 'rev' => 0, 'r' => []]; }
+
+    static function decodePlan($raw, $eq) {
+        $d = is_string($raw) ? json_decode($raw, true) : null;
+        if (!is_array($d) || ($d['bcw'] ?? null) !== self::PLAN || (int) ($d['eq'] ?? 0) !== (int) $eq || !isset($d['rev']) || !is_array($d['r'] ?? null))
+            throw self::damaged('the plan of equipment ' . (int) $eq);
+        return ['eq' => (int) $eq, 'rev' => (int) $d['rev'], 'r' => $d['r']];
+    }
+
+    static function encodePlan(array $p) {
+        $s = self::enc(['bcw' => self::PLAN, 'eq' => (int) $p['eq'], 'rev' => (int) $p['rev'], 'r' => (object) $p['r']]);
+        if (strlen($s) > self::ITEM_MAX)
+            throw new ApiError('too_large', 'The maintenance plan of this equipment is full (' . strlen($s) . ' bytes)', null,
+                ['reason' => 'plan_full', 'equipment_id' => (int) $p['eq']]);
+        return $s;
+    }
+
+    /** Throws too_large unless $p still fits once each of $uuids gets one more journal reference (checked before writing). */
+    static function assertFits(array $p, array $uuids) {
+        foreach ($uuids as $u) $p['r'][$u]['j'][] = 2147483647;
+        $p['rev'] = (int) $p['rev'] + 1;
+        self::encodePlan($p);
+    }
+
+    private static function encodeJournal($uuid, $eq, array $changes, array $x) {
+        $s = self::enc(['bcw' => self::JOURNAL, 'id' => $uuid, 'eq' => (int) $eq, 'c' => $changes, 'x' => (object) $x]);
+        if (strlen($s) > self::ITEM_MAX)
+            throw new ApiError('too_large', 'The audit entry is too large to store', null, ['reason' => 'journal_too_large']);
+        return $s;
+    }
+
+    private static function decodeJournal($raw, $jid) {
+        $d = is_string($raw) ? json_decode($raw, true) : null;
+        if (!is_array($d) || ($d['bcw'] ?? null) !== self::JOURNAL || !is_array($d['c'] ?? null))
+            throw self::damaged('audit entry ' . (int) $jid);
+        return $d;
+    }
+
     // ------------------------------------------------------------------ reads
 
-    static function find($id) {
-        return Store::row('SELECT * FROM ' . self::table() . ' WHERE id=' . Store::esc($id));
+    /**
+     * Every plan, freshly read. @return array [registry, [eq => ['id' => item id, 'raw' => raw, 'state' => plan]]]
+     */
+    static function loadAll() {
+        $reg = self::registry();
+        $raws = $reg['plans'] ? self::store()->items(array_values($reg['plans'])) : [];
+        $out = [];
+        foreach ($reg['plans'] as $eq => $id) {
+            if (!array_key_exists($id, $raws)) throw self::damaged('plan item ' . $id);
+            $out[$eq] = ['id' => $id, 'raw' => $raws[$id], 'state' => self::decodePlan($raws[$id], $eq)];
+        }
+        return [$reg, $out];
     }
 
-    /** The non-cancelled maintenance of this equipment on this date, if any. */
-    static function holder($equipmentId, $date) {
-        return Store::row('SELECT * FROM ' . self::table() . ' WHERE equipment_id=' . (int) $equipmentId . ' AND active_date=' . Store::esc($date));
+    /** The plan of one equipment, or null when it has none yet. */
+    static function loadPlan($eq) {
+        $reg = self::registry();
+        if (!isset($reg['plans'][(int) $eq])) return null;
+        $id = $reg['plans'][(int) $eq];
+        $raws = self::store()->items([$id]);
+        if (!array_key_exists($id, $raws)) throw self::damaged('plan item ' . $id);
+        return ['id' => $id, 'raw' => $raws[$id], 'state' => self::decodePlan($raws[$id], $eq)];
     }
 
-    /** @return array [rows, more, watermark cursor] ordered by (updated_at, id) ascending */
+    /** @return array|null [eq, plan row] of the record with this id */
+    static function locate($uuid) {
+        $reg = self::registry();
+        if (!$reg['plans']) return null;
+        $byId = array_flip($reg['plans']);
+        $hit = null;
+        foreach (self::store()->itemsContaining(array_values($reg['plans']), '"' . $uuid . '"') as $id => $raw) {
+            $eq = $byId[$id];
+            $st = self::decodePlan($raw, $eq);
+            if (!isset($st['r'][$uuid])) continue;
+            // An id stored under two equipments can only come from two concurrent creates of the same client id with
+            // different equipment (never the app): the earliest creation wins, consistently for every reader.
+            $key = [$st['r'][$uuid]['ca'], $eq];
+            if ($hit === null || $key < $hit[0]) $hit = [$key, $eq, ['id' => $id, 'raw' => $raw, 'state' => $st]];
+        }
+        return $hit ? [$hit[1], $hit[2]] : null;
+    }
+
+    /** Loads the journals referenced by these cores into $cache (jid => decoded). */
+    static function preload(array $cores, array &$cache) {
+        $need = [];
+        foreach ($cores as $c)
+            foreach (array_merge($c['j'] ?? [], isset($c['nn']) ? [$c['nn']] : [], isset($c['xr']) ? [$c['xr']] : []) as $jid)
+                if (!isset($cache[(int) $jid])) $need[(int) $jid] = true;
+        if (!$need) return;
+        $raws = self::store()->items(array_keys($need));
+        foreach (array_keys($need) as $jid) {
+            if (!array_key_exists($jid, $raws)) throw self::damaged('audit entry ' . $jid);
+            $cache[$jid] = self::decodeJournal($raws[$jid], $jid);
+        }
+    }
+
+    // ------------------------------------------------------------------ DTO
+
+    private static function utc($v) { return $v ? str_replace(' ', 'T', substr($v, 0, 19)) . 'Z' : null; }
+
+    static function changesOf(array $core, array $journals) {
+        $out = [];
+        foreach ($core['j'] ?? [] as $jid) foreach ($journals[(int) $jid]['c'] as $c) $out[] = $c;
+        return $out;
+    }
+
+    /** The exact record of the API (keys and types of the retired table's DTO). */
+    static function dto($uuid, $eq, array $core, array &$journals) {
+        self::preload([$core], $journals);
+        $note = isset($core['nn']) ? ($journals[(int) $core['nn']]['x']['completion_note'] ?? null) : null;
+        $cancel = isset($core['xr']) ? ($journals[(int) $core['xr']]['x']['cancel_reason'] ?? null) : null;
+        return [
+            'id'              => (string) $uuid,
+            'equipment_id'    => (int) $eq,
+            'scheduled_date'  => $core['d'],
+            'stored_status'   => $core['s'],
+            'ticket_id'       => isset($core['t']) ? (int) $core['t'] : null,
+            'completed_on'    => $core['co'] ?? null,
+            'completed_by'    => isset($core['cy']) ? (int) $core['cy'] : null,
+            'evidence_ref'    => $core['e'] ?? null,
+            'completion_note' => $note,
+            'cancel_reason'   => $cancel,
+            'changes'         => self::changesOf($core, $journals),
+            'created_at'      => self::utc($core['ca']),
+            'created_by'      => (int) $core['cb'],
+            'updated_at'      => self::utc($core['ua']),
+            'updated_by'      => (int) $core['ub'],
+        ];
+    }
+
+    static function lastChange(array $core, array &$journals) {
+        self::preload([$core], $journals);
+        $c = self::changesOf($core, $journals);
+        return $c ? end($c) : null;
+    }
+
+    // ------------------------------------------------------------------ feed
+
+    /**
+     * One page of the feed ordered by (updated_at, id). @return array [[[uuid, eq, core], ...], more]
+     */
     static function page($after, $limit, $equipmentId, $ticketId) {
-        $w = ['1=1'];
-        if ($after)
-            $w[] = '(updated_at > ' . Store::esc($after['t']) . ' OR (updated_at = ' . Store::esc($after['t']) . ' AND id > ' . Store::esc($after['i']) . '))';
-        if ($equipmentId) $w[] = 'equipment_id=' . (int) $equipmentId;
-        if ($ticketId) $w[] = 'ticket_id=' . (int) $ticketId;
-        $q = Store::q('SELECT * FROM ' . self::table() . ' WHERE ' . implode(' AND ', $w) . ' ORDER BY updated_at, id LIMIT ' . ($limit + 1));
+        if ($equipmentId) {
+            $p = self::loadPlan($equipmentId);
+            $plans = $p ? [$equipmentId => $p] : [];
+        } else {
+            list(, $plans) = self::loadAll();
+        }
         $rows = [];
-        while ($q && ($r = db_fetch_array($q))) $rows[] = $r;
+        foreach ($plans as $eq => $p)
+            foreach ($p['state']['r'] as $uuid => $core) {
+                if ($ticketId && (int) ($core['t'] ?? 0) !== (int) $ticketId) continue;
+                if ($after && ($core['ua'] < $after['t'] || ($core['ua'] === $after['t'] && strcmp((string) $uuid, $after['i']) <= 0))) continue;
+                $rows[] = [(string) $uuid, (int) $eq, $core];
+            }
+        usort($rows, function ($a, $b) { return strcmp($a[2]['ua'], $b[2]['ua']) ?: strcmp($a[0], $b[0]); });
         $more = count($rows) > $limit;
-        if ($more) array_pop($rows);
-        return [$rows, $more];
+        return [array_slice($rows, 0, $limit), $more];
     }
 
-    static function cursor(array $r) {
-        return Token::b64(json_encode(['t' => $r['updated_at'], 'i' => $r['id']]));
+    static function cursor($uuid, array $core) {
+        return Token::b64(json_encode(['t' => $core['ua'], 'i' => (string) $uuid]));
     }
 
     static function decodeCursor($c) {
@@ -112,75 +296,92 @@ final class Maintenance {
         if (!is_array($d) || !isset($d['t'], $d['i']) || !is_string($d['t']) || !is_string($d['i'])
             || !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/', $d['t']) || !preg_match(Documents::UUID, $d['i']))
             throw ApiError::validation('Invalid cursor', 'cursor');
+        // Cursors of the retired table may carry fewer fractional digits: compare on the stored 6-digit form.
+        $d['t'] = substr($d['t'] . (strpos($d['t'], '.') === false ? '.' : '') . '000000', 0, 26);
         return $d;
-    }
-
-    // ------------------------------------------------------------------ DTO
-
-    private static function utc($v) { return $v ? str_replace(' ', 'T', substr($v, 0, 19)) . 'Z' : null; }
-    private static function n($v) { return $v === null ? null : (int) $v; }
-
-    static function dto(array $r) {
-        return [
-            'id'              => $r['id'],
-            'equipment_id'    => (int) $r['equipment_id'],
-            'scheduled_date'  => $r['scheduled_date'],
-            'stored_status'   => $r['stored_status'],
-            'ticket_id'       => self::n($r['ticket_id']),
-            'completed_on'    => $r['completed_on'],
-            'completed_by'    => self::n($r['completed_by']),
-            'evidence_ref'    => $r['evidence_ref'],
-            'completion_note' => $r['completion_note'],
-            'cancel_reason'   => $r['cancel_reason'],
-            'changes'         => json_decode((string) $r['changes'], true) ?: [],
-            'created_at'      => self::utc($r['created_at']),
-            'created_by'      => (int) $r['created_by'],
-            'updated_at'      => self::utc($r['updated_at']),
-            'updated_by'      => (int) $r['updated_by'],
-        ];
-    }
-
-    static function lastChange(array $r) {
-        $c = json_decode((string) $r['changes'], true);
-        return $c ? end($c) : null;
     }
 
     // ------------------------------------------------------------------ writes
 
-    static function change($kind, $staffId, $reason, $from, $to) {
-        return ['kind' => $kind, 'at' => gmdate('Y-m-d\TH:i:s\Z'), 'by' => (int) $staffId, 'reason' => $reason, 'from' => $from, 'to' => $to];
+    static function now() { return self::store()->now(); }
+
+    /** Strictly increasing per record (the feed never sees an update "in the past" of the same record). */
+    static function stamp($now, $prev = null) {
+        if ($prev === null || strcmp($now, $prev) > 0) return $now;
+        $t = \DateTime::createFromFormat('Y-m-d H:i:s.u', $prev, new \DateTimeZone('UTC'));
+        $t->modify('+1 microsecond');
+        return $t->format('Y-m-d H:i:s.u');
     }
 
-    /** Insert-if-absent. @return bool true when the row was created (false: the id or the (equipment, date) slot is taken) */
-    static function insert($id, $equipmentId, $date, $staffId) {
-        $chg = json_encode([self::change('created', $staffId, null, null, ['equipment_id' => (int) $equipmentId, 'scheduled_date' => $date])], JSON_UNESCAPED_UNICODE);
-        Store::q('INSERT IGNORE INTO ' . self::table() . ' SET id=' . Store::esc($id) . ', schema_version=' . self::SCHEMA_VERSION
-            . ', equipment_id=' . (int) $equipmentId . ', scheduled_date=' . Store::esc($date) . ', active_date=' . Store::esc($date)
-            . ', stored_status=\'PLANNED\', changes=' . Store::esc($chg) . ', rev=1'
-            . ', created_at=UTC_TIMESTAMP(6), created_by=' . (int) $staffId . ', updated_at=UTC_TIMESTAMP(6), updated_by=' . (int) $staffId);
-        return Store::affected() === 1;
+    static function change($kind, $staffId, $reason, $from, $to, $now) {
+        return ['kind' => $kind, 'at' => str_replace(' ', 'T', substr($now, 0, 19)) . 'Z', 'by' => (int) $staffId, 'reason' => $reason, 'from' => $from, 'to' => $to];
     }
 
     /**
-     * Compare-and-swap update of one row: $set is [column => SQL literal already escaped]; the audit entry is appended to
-     * `changes`. @return bool false when someone else changed the row (rev) or the unique slot was taken (UPDATE IGNORE).
+     * Commits $after over $row (null: the equipment has no plan yet) with ONE swap of the plan row. $ops = [uuid =>
+     * ['c' => [changes], 'x' => [completion_note?, cancel_reason?]]]: one journal per uuid is written first (reusing the
+     * attempt-stable ids in $jids) and linked into the record. @return array|false the committed plan state, or false
+     * when someone else changed the plan (the caller re-reads and re-evaluates).
      */
-    static function update(array $row, array $set, array $change, $staffId) {
-        $chg = json_decode((string) $row['changes'], true) ?: [];
-        $chg[] = $change;
-        $sets = [];
-        foreach ($set as $col => $lit) $sets[] = '`' . $col . '`=' . $lit;
-        $sets[] = 'changes=' . Store::esc(json_encode($chg, JSON_UNESCAPED_UNICODE));
-        $sets[] = 'rev=rev+1';
-        $sets[] = 'updated_at=UTC_TIMESTAMP(6)';
-        $sets[] = 'updated_by=' . (int) $staffId;
-        Store::q('UPDATE IGNORE ' . self::table() . ' SET ' . implode(', ', $sets) . ' WHERE id=' . Store::esc($row['id']) . ' AND rev=' . (int) $row['rev']);
-        return Store::affected() === 1;
+    static function commit($eq, $row, array $after, array $ops, array &$jids, array &$journals) {
+        $s = self::store();
+        foreach ($ops as $uuid => $op) {
+            $x = $op['x'] ?? [];
+            $raw = self::encodeJournal($uuid, $eq, $op['c'], $x);
+            if (isset($jids[$uuid])) $s->rewrite($jids[$uuid], $raw);
+            else $jids[$uuid] = $s->insert(self::JOURNAL . ' ' . $uuid, $raw);
+            $jid = $jids[$uuid];
+            $journals[$jid] = self::decodeJournal($raw, $jid);
+            $core = $after['r'][$uuid];
+            $core['j'] = array_merge($core['j'] ?? [], [$jid]);
+            if (array_key_exists('completion_note', $x)) $core['nn'] = $jid;
+            if (array_key_exists('cancel_reason', $x)) $core['xr'] = $jid;
+            $after['r'][$uuid] = $core;
+        }
+        if ($row === null) {
+            $row = self::register($eq);
+            if ($row === null) return false;
+        }
+        $after['eq'] = (int) $eq;
+        $after['rev'] = (int) $row['state']['rev'] + 1;
+        if (!$s->cas($row['id'], $row['raw'], self::encodePlan($after))) return false;
+        return $after;
     }
 
-    /** Is the agent an administrator or the manager of ANY department (decision B of the design)? */
-    static function isManagerOfAny(\Staff $s) {
-        if ($s->isAdmin()) return true;
-        return (bool) Store::row('SELECT id FROM ' . DEPT_TABLE . ' WHERE manager_id=' . (int) $s->getId() . ' LIMIT 1');
+    /** Gives the equipment its (empty) plan row. @return array|null the row, or null when another writer registered one. */
+    private static function register($eq) {
+        $s = self::store();
+        $empty = self::emptyPlan($eq);
+        $raw = self::encodePlan($empty);
+        $id = null;
+        for ($i = 0; $i < self::ATTEMPTS; $i++) {
+            $reg = self::registry();
+            if (isset($reg['plans'][(int) $eq])) {
+                if ($id !== null) $s->orphan($id);
+                return null;
+            }
+            if ($id === null) $id = $s->insert(self::PLAN . ' eq=' . (int) $eq, $raw);
+            $plans = $reg['plans'];
+            $plans[(int) $eq] = $id;
+            if ($s->casRegistry($reg['raw'], self::encodeRegistry($reg['rev'] + 1, $plans)))
+                return ['id' => $id, 'raw' => $raw, 'state' => $empty];
+            self::backoff($i);
+        }
+        if ($id !== null) $s->orphan($id);
+        throw self::busy();
+    }
+
+    /** Journals written by attempts that did not end referenced. */
+    static function orphanUnreferenced(array $jids, array $referenced) {
+        foreach ($jids as $uuid => $jid)
+            if (empty($referenced[$jid])) self::store()->orphan($jid);
+    }
+
+    static function backoff($attempt) {
+        if ($attempt > 0) usleep(min(200000, 2000 * (1 << min($attempt, 7))) + mt_rand(0, 3000));
+    }
+
+    static function busy() {
+        return new ApiError('locked', 'The maintenance plan is being changed by other requests; retry', null, ['reason' => 'busy']);
     }
 }

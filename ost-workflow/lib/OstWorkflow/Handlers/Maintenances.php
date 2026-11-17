@@ -9,15 +9,20 @@ use OstWorkflow\Res;
 use OstWorkflow\Ticketing;
 
 /**
- * ScheduledMaintenance store (OW-REQ-70, module 8). The state machine, the audit (`changes[]`) and the rules live here and in
- * Maintenance; the client keeps the derived views (month / upcoming / overdue). Records are never deleted: cancel instead.
+ * ScheduledMaintenance store (OW-REQ-70, module 8) on native osTicket storage (Maintenance / MaintenanceListStore: one
+ * dedicated Custom List, no plugin table). The state machine, the audit (`changes[]`) and the rules live here; the client
+ * keeps the derived views (month / upcoming / overdue). Records are never deleted: cancel instead.
  *
  * Writes follow the plugin's `base` convention (Tickets): the client sends the value it saw; current == desired -> 200
  * {applied:false}; current == base -> apply; else 409 conflict {reason, current, base, last_change, record}.
  *   reschedule  base = scheduled_date seen        complete / cancel / revert  base = stored_status seen
  *   link / unlink  base = ticket_id seen (null when none)
+ * Every write is evaluated against the freshest plan of the equipment and committed with one compare-and-swap of that
+ * plan; a lost swap re-reads and re-evaluates the same request (Maintenance::commit), so concurrent writers serialize.
  * Authorization: reads `auth`; create / reschedule / complete / link / unlink `anydept.ticket.create`; cancel and revert
  * `maintenance.manager` (administrator, or manager of ANY department); link also needs `ticket.view` on the target Ticket.
+ * `POST /maintenances/import` (one-shot migration of the retired table, verbatim records) is administrator-only and
+ * answers 403 unless the plugin setting `maintenance_import_enabled` is on.
  */
 final class Maintenances {
     const BATCH_MAX = 200;
@@ -31,6 +36,7 @@ final class Maintenances {
         return [
             ['GET',  '/maintenances',            'index',      ['policy' => 'auth']],
             ['POST', '/maintenances/batch',      'batch',      ['policy' => 'anydept.ticket.create']],
+            ['POST', '/maintenances/import',     'import',     ['policy' => 'maintenance.import', 'max_body' => 4194304]],
             ['GET',  $id,                        'show',       ['policy' => 'auth']],
             ['POST', "$id/reschedule",           'reschedule', ['policy' => 'anydept.ticket.create']],
             ['POST', "$id/complete",             'complete',   ['policy' => 'anydept.ticket.create']],
@@ -47,6 +53,12 @@ final class Maintenances {
             'maintenance.manager' => function (Request $req) {
                 if (!Maintenance::isManagerOfAny($req->staff))
                     throw new ApiError('forbidden', 'Only an administrator or a department manager can do this', null, ['reason' => 'manager_required']);
+            },
+            'maintenance.import' => function (Request $req) {
+                if (!$req->staff->isAdmin())
+                    throw new ApiError('forbidden', 'Only an administrator can import maintenances', null, ['reason' => 'admin_required']);
+                if (!Maintenance::importEnabled())
+                    throw new ApiError('forbidden', "The import is disabled (plugin setting 'maintenance_import_enabled')", null, ['reason' => 'import_disabled']);
             },
         ];
     }
@@ -67,15 +79,21 @@ final class Maintenances {
         $eq = self::idQuery($req, 'equipment_id');
         $tk = self::idQuery($req, 'ticket_id');
         list($rows, $more) = Maintenance::page($after, $limit, $eq, $tk);
-        $items = array_map(['OstWorkflow\Maintenance', 'dto'], $rows);
-        $wm = $rows ? Maintenance::cursor(end($rows)) : $req->q('cursor');
+        $journals = [];
+        Maintenance::preload(array_column($rows, 2), $journals);
+        $items = [];
+        foreach ($rows as $r) $items[] = Maintenance::dto($r[0], $r[1], $r[2], $journals);
+        $last = $rows ? end($rows) : null;
+        $wm = $last ? Maintenance::cursor($last[0], $last[2]) : $req->q('cursor');
         return Res::page($items, $more ? $wm : null, ['watermark' => $wm]);
     }
 
     /** GET /maintenances/{id} */
     static function show(Request $req) {
         Maintenance::ready();
-        return Res::ok(Maintenance::dto(self::load($req)));
+        list($eq, $row, $uuid) = self::load($req);
+        $j = [];
+        return Res::ok(Maintenance::dto($uuid, $eq, $row['state']['r'][$uuid], $j));
     }
 
     // ==================================================================
@@ -91,51 +109,173 @@ final class Maintenances {
      */
     static function batch(Request $req) {
         Maintenance::ready();
+        $items = self::items($req);
+        $staffId = (int) $req->staff->getId();
+        $equipment = [];
+        return self::engine($items, function ($it, $now) use ($staffId, &$equipment) {
+            $eid = $it['equipment_id'] ?? null;
+            if (!is_int($eid) || $eid < 1)
+                return ['reject' => ['invalid_equipment', "'equipment_id' must be a positive integer"]];
+            $date = self::dateOrNull($it['scheduled_date'] ?? null);
+            if ($date === null)
+                return ['reject' => ['invalid_date', "'scheduled_date' must be a valid date YYYY-MM-DD"]];
+            if (!array_key_exists($eid, $equipment))
+                $equipment[$eid] = Maintenance::equipment($eid);
+            if ($equipment[$eid] === null)
+                return ['reject' => ['equipment_not_found', 'The equipment is not an item of the Installed Equipment list']];
+            if ($equipment[$eid] !== 'ACTIVE')
+                return ['reject' => ['equipment_retired', 'The equipment is retired: no new maintenance can be scheduled']];
+            return ['eq' => $eid, 'core' => ['d' => $date, 's' => Maintenance::PLANNED, 'ca' => $now, 'cb' => $staffId, 'ua' => $now, 'ub' => $staffId, 'j' => []],
+                    'c' => [Maintenance::change('created', $staffId, null, null, ['equipment_id' => $eid, 'scheduled_date' => $date], $now)], 'x' => []];
+        }, false);
+    }
+
+    /**
+     * POST /maintenances/import {items:[record...]} (max 200) — one-shot migration of the retired table: each item is a
+     * record exactly as `GET /maintenances` of the retired store served it, stored verbatim (ids, dates, staff, audit).
+     * Per item: created | exists (the stored record is identical) | rejected (invalid_record, duplicate, mismatch with
+     * details.current). Equipment membership and evidence are NOT re-validated (they were when the record was written).
+     */
+    static function import(Request $req) {
+        Maintenance::ready();
+        $items = self::items($req);
+        return self::engine($items, function ($it) {
+            $bad = self::verbatimError($it);
+            if ($bad !== null) return ['reject' => ['invalid_record', $bad]];
+            $ts = function ($z) { return substr($z, 0, 10) . ' ' . substr($z, 11, 8) . '.000000'; };
+            $core = ['d' => $it['scheduled_date'], 's' => $it['stored_status'], 'ca' => $ts($it['created_at']), 'cb' => $it['created_by'],
+                     'ua' => $ts($it['updated_at']), 'ub' => $it['updated_by'], 'j' => []];
+            if ($it['ticket_id'] !== null) $core['t'] = $it['ticket_id'];
+            if ($it['completed_on'] !== null) $core['co'] = $it['completed_on'];
+            if ($it['completed_by'] !== null) $core['cy'] = $it['completed_by'];
+            if ($it['evidence_ref'] !== null) $core['e'] = $it['evidence_ref'];
+            $x = [];
+            if ($it['completion_note'] !== null) $x['completion_note'] = $it['completion_note'];
+            if ($it['cancel_reason'] !== null) $x['cancel_reason'] = $it['cancel_reason'];
+            return ['eq' => $it['equipment_id'], 'core' => $core, 'c' => array_values($it['changes']), 'x' => $x, 'verbatim' => $it];
+        }, true);
+    }
+
+    private static function items(Request $req) {
         $b = $req->json();
         $items = $b['items'] ?? null;
         if (!is_array($items) || !$items || array_keys($items) !== range(0, count($items) - 1))
             throw ApiError::validation("'items' must be a non-empty list", 'items');
         if (count($items) > self::BATCH_MAX)
             throw ApiError::validation("'items' has more than " . self::BATCH_MAX . ' entries', 'items');
-        $staffId = (int) $req->staff->getId();
-        $out = []; $n = ['created' => 0, 'exists' => 0, 'rejected' => 0];
-        $equipment = [];
-        foreach ($items as $it) {
-            $res = self::createOne($it, $staffId, $equipment);
-            $n[$res['result']]++;
-            $out[] = $res;
+        return $items;
+    }
+
+    /**
+     * Shared engine of batch and import: evaluates every item in request order against working copies of the plans
+     * (exactly the sequential semantics of the retired store), then commits each touched equipment with one swap. A lost
+     * swap re-reads everything and re-evaluates the items whose equipment is not committed yet; ids this request created
+     * keep answering `created`.
+     */
+    private static function engine(array $items, callable $build, $verbatim) {
+        $createdByUs = [];      // uuid => true (committed by this request)
+        $jids = [];             // uuid => journal id (stable across attempts)
+        $journals = [];
+        for ($attempt = 0; $attempt < Maintenance::ATTEMPTS; $attempt++) {
+            Maintenance::backoff($attempt);
+            list(, $plans) = Maintenance::loadAll();
+            $work = [];         // eq => plan state
+            $index = [];        // uuid => eq
+            foreach ($plans as $eq => $p) {
+                $work[$eq] = $p['state'];
+                foreach ($p['state']['r'] as $u => $c) $index[(string) $u] = $eq;
+            }
+            $now = Maintenance::now();
+            $out = []; $ops = []; $answered = [];
+            try {
+                foreach ($items as $it) {
+                    $id = is_array($it) && isset($it['id']) && is_string($it['id']) ? strtolower($it['id']) : '';
+                    if (!preg_match(Documents::UUID, $id)) {
+                        $out[] = self::rejected($id, 'invalid_id', "'id' must be a client-generated UUID");
+                        continue;
+                    }
+                    if (isset($index[$id])) {
+                        // The first occurrence of an id an earlier attempt of THIS request committed is still `created`;
+                        // a repeated id inside the request is `exists` (sequential semantics of the retired store).
+                        $mine = isset($createdByUs[$id]) && !isset($answered[$id]);
+                        $answered[$id] = true;
+                        $out[] = ['id' => $id, 'result' => $mine ? 'created' : 'exists', '_eq' => $index[$id], '_verbatim' => $verbatim ? $it : null];
+                        continue;
+                    }
+                    $b = $build($it, $now);
+                    if (isset($b['reject'])) {
+                        $out[] = self::rejected($id, $b['reject'][0], $b['reject'][1]);
+                        continue;
+                    }
+                    $eq = $b['eq'];
+                    if (!isset($work[$eq])) $work[$eq] = Maintenance::emptyPlan($eq);
+                    if ($b['core']['s'] !== Maintenance::CANCELLED && ($h = self::holder($work[$eq], $b['core']['d'])) !== null) {
+                        $out[] = self::rejected($id, 'duplicate', 'The equipment already has a non-cancelled maintenance on that date', ['details' => ['existing_id' => $h]]);
+                        continue;
+                    }
+                    $work[$eq]['r'][$id] = $b['core'];
+                    $ops[$eq][$id] = ['c' => $b['c'], 'x' => $b['x']];
+                    $index[$id] = $eq;
+                    $answered[$id] = true;
+                    $out[] = ['id' => $id, 'result' => 'created', '_eq' => $eq];
+                }
+                ksort($ops);
+                // Capacity is checked for every touched plan before anything is written: the request fails whole.
+                foreach ($ops as $eq => $o) Maintenance::assertFits($work[$eq], array_keys($o));
+                $lost = false;
+                foreach ($ops as $eq => $o) {
+                    $after = Maintenance::commit($eq, $plans[$eq] ?? null, $work[$eq], $o, $jids, $journals);
+                    if ($after === false) { $lost = true; break; }
+                    $work[$eq] = $after;
+                    foreach ($o as $u => $_) $createdByUs[$u] = true;
+                }
+            } catch (ApiError $e) {
+                Maintenance::orphanUnreferenced($jids, self::referenced($jids, $createdByUs));
+                throw $e;
+            }
+            if ($lost) continue;
+            Maintenance::orphanUnreferenced($jids, self::referenced($jids, $createdByUs));
+            return self::answer($out, $work, $journals, $verbatim);
+        }
+        Maintenance::orphanUnreferenced($jids, self::referenced($jids, $createdByUs));
+        throw Maintenance::busy();
+    }
+
+    private static function referenced(array $jids, array $createdByUs) {
+        $r = [];
+        foreach ($jids as $u => $jid) if (isset($createdByUs[$u])) $r[$jid] = true;
+        return $r;
+    }
+
+    private static function answer(array $out, array $work, array &$journals, $verbatim) {
+        $cores = [];
+        foreach ($out as $o) if (isset($o['_eq'])) $cores[] = $work[$o['_eq']]['r'][$o['id']];
+        Maintenance::preload($cores, $journals);
+        $n = ['created' => 0, 'exists' => 0, 'rejected' => 0];
+        foreach ($out as $k => $o) {
+            if (isset($o['_eq'])) {
+                $dto = Maintenance::dto($o['id'], $o['_eq'], $work[$o['_eq']]['r'][$o['id']], $journals);
+                if ($verbatim && $o['result'] === 'exists' && !self::sameRecord($dto, $o['_verbatim']))
+                    $o = self::rejected($o['id'], 'mismatch', 'A different record with this id is already stored', ['details' => ['current' => $dto]]);
+                else
+                    $o = ['id' => $o['id'], 'result' => $o['result'], 'maintenance' => $dto];
+            }
+            unset($o['_eq'], $o['_verbatim']);
+            $n[$o['result']]++;
+            $out[$k] = $o;
         }
         return Res::ok($out, $n);
     }
 
-    private static function createOne($it, $staffId, array &$equipment) {
-        $id = is_array($it) && isset($it['id']) && is_string($it['id']) ? strtolower($it['id']) : '';
-        $rej = function ($code, $msg, array $extra = []) use ($id) {
-            return array_merge(['id' => $id !== '' ? $id : null, 'result' => 'rejected', 'code' => $code, 'message' => $msg], $extra);
-        };
-        if (!preg_match(Documents::UUID, $id))
-            return $rej('invalid_id', "'id' must be a client-generated UUID");
-        if ($row = Maintenance::find($id))
-            return ['id' => $id, 'result' => 'exists', 'maintenance' => Maintenance::dto($row)];
-        $eid = $it['equipment_id'] ?? null;
-        if (!is_int($eid) || $eid < 1)
-            return $rej('invalid_equipment', "'equipment_id' must be a positive integer");
-        $date = self::dateOrNull($it['scheduled_date'] ?? null);
-        if ($date === null)
-            return $rej('invalid_date', "'scheduled_date' must be a valid date YYYY-MM-DD");
-        if (!array_key_exists($eid, $equipment))
-            $equipment[$eid] = Maintenance::equipment($eid);
-        if ($equipment[$eid] === null)
-            return $rej('equipment_not_found', 'The equipment is not an item of the Installed Equipment list');
-        if ($equipment[$eid] !== 'ACTIVE')
-            return $rej('equipment_retired', 'The equipment is retired: no new maintenance can be scheduled');
-        if (Maintenance::insert($id, $eid, $date, $staffId))
-            return ['id' => $id, 'result' => 'created', 'maintenance' => Maintenance::dto(Maintenance::find($id))];
-        // Not inserted: a concurrent request took the id (adopt it) or the (equipment, date) slot.
-        if ($row = Maintenance::find($id))
-            return ['id' => $id, 'result' => 'exists', 'maintenance' => Maintenance::dto($row)];
-        $h = Maintenance::holder($eid, $date);
-        return $rej('duplicate', 'The equipment already has a non-cancelled maintenance on that date', ['details' => ['existing_id' => $h ? $h['id'] : null]]);
+    private static function rejected($id, $code, $msg, array $extra = []) {
+        return array_merge(['id' => $id !== '' ? $id : null, 'result' => 'rejected', 'code' => $code, 'message' => $msg], $extra);
+    }
+
+    /** The non-cancelled record of this plan on this date, if any. */
+    private static function holder(array $plan, $date, $except = null) {
+        foreach ($plan['r'] as $u => $c)
+            if ($c['d'] === $date && $c['s'] !== Maintenance::CANCELLED && (string) $u !== $except) return (string) $u;
+        return null;
     }
 
     // ==================================================================
@@ -148,17 +288,19 @@ final class Maintenances {
         $new = self::dateOrNull($req->input('scheduled_date')) ?: self::bad("'scheduled_date' must be a valid date YYYY-MM-DD", 'scheduled_date');
         $reason = self::text($req->input('reason'), 'reason', true);
         $base = self::baseDate($req);
-        $r = self::load($req);
-        self::mustBe($r, Maintenance::PLANNED);
-        if ($r['scheduled_date'] === $new)
-            return self::noop($r);
-        if ($r['scheduled_date'] !== $base)
-            self::conflict('base_mismatch', $r, $r['scheduled_date'], $base);
-        if (($h = Maintenance::holder($r['equipment_id'], $new)) && $h['id'] !== $r['id'])
-            self::conflict('duplicate', $r, $r['scheduled_date'], $base, ['existing_id' => $h['id']]);
         $staffId = (int) $req->staff->getId();
-        return self::commit($r, ['scheduled_date' => self::q($new), 'active_date' => self::q($new)],
-            Maintenance::change('reschedule', $staffId, $reason, $r['scheduled_date'], $new), $staffId, true);
+        return self::transition($req, function ($uuid, $r, array $plan, $now, &$j) use ($new, $reason, $base, $staffId) {
+            self::mustBe($plan['eq'], $uuid, $r, Maintenance::PLANNED, $j);
+            if ($r['d'] === $new)
+                return null;
+            if ($r['d'] !== $base)
+                self::conflict('base_mismatch', $plan['eq'], $uuid, $r, $r['d'], $base, $j);
+            if (($h = self::holder($plan, $new, $uuid)) !== null)
+                self::conflict('duplicate', $plan['eq'], $uuid, $r, $r['d'], $base, $j, ['existing_id' => $h]);
+            $c = Maintenance::change('reschedule', $staffId, $reason, $r['d'], $new, $now);
+            $r['d'] = $new;
+            return [$r, $c, []];
+        });
     }
 
     /** POST /maintenances/{id}/complete {base:<status seen>, completed_on, evidence_ref?, completion_note?} — PLANNED only. */
@@ -177,43 +319,50 @@ final class Maintenances {
             throw ApiError::validation("'completion_note' is required when there is no 'evidence_ref'", 'completion_note');
         if ($ref !== null) $ref = 'doc:' . strtolower($m[1]) . '@' . (int) $m[2];
         $base = self::baseStatus($req);
-        $r = self::load($req);
-        if ($r['stored_status'] === Maintenance::COMPLETED) {
-            if ($r['completed_on'] === $on && $r['evidence_ref'] === $ref && $r['completion_note'] === $note)
-                return self::noop($r);
-            self::conflict('base_mismatch', $r, $r['stored_status'], $base);
-        }
-        if ($r['stored_status'] !== $base)
-            self::conflict('base_mismatch', $r, $r['stored_status'], $base);
-        self::mustBe($r, Maintenance::PLANNED);
-        if ($ref !== null) {
-            if ($r['ticket_id'] === null)
-                throw ApiError::validation("'evidence_ref' needs a linked Ticket", 'evidence_ref', ['reason' => 'no_ticket']);
-            $doc = Documents::find(['uuid' => substr($ref, 4, 36), 'version' => (int) substr($ref, 41)]);
-            if (!$doc || $doc['ticket_id'] !== (int) $r['ticket_id'])
-                throw ApiError::validation("'evidence_ref' is not a published document of the linked Ticket", 'evidence_ref', ['reason' => 'foreign_evidence']);
-        }
         $staffId = (int) $req->staff->getId();
-        return self::commit($r, ['stored_status' => "'COMPLETED'", 'completed_on' => self::q($on), 'completed_by' => $staffId,
-                'evidence_ref' => self::q($ref), 'completion_note' => self::q($note)],
-            Maintenance::change('complete', $staffId, $note, 'PLANNED', ['stored_status' => 'COMPLETED', 'completed_on' => $on, 'evidence_ref' => $ref, 'completion_note' => $note]),
-            $staffId);
+        return self::transition($req, function ($uuid, $r, array $plan, $now, &$j) use ($on, $ref, $note, $base, $staffId) {
+            if ($r['s'] === Maintenance::COMPLETED) {
+                $dto = Maintenance::dto($uuid, $plan['eq'], $r, $j);
+                if ($dto['completed_on'] === $on && $dto['evidence_ref'] === $ref && $dto['completion_note'] === $note)
+                    return null;
+                self::conflict('base_mismatch', $plan['eq'], $uuid, $r, $r['s'], $base, $j);
+            }
+            if ($r['s'] !== $base)
+                self::conflict('base_mismatch', $plan['eq'], $uuid, $r, $r['s'], $base, $j);
+            self::mustBe($plan['eq'], $uuid, $r, Maintenance::PLANNED, $j);
+            if ($ref !== null) {
+                if (!isset($r['t']))
+                    throw ApiError::validation("'evidence_ref' needs a linked Ticket", 'evidence_ref', ['reason' => 'no_ticket']);
+                $doc = Documents::find(['uuid' => substr($ref, 4, 36), 'version' => (int) substr($ref, 41)]);
+                if (!$doc || $doc['ticket_id'] !== (int) $r['t'])
+                    throw ApiError::validation("'evidence_ref' is not a published document of the linked Ticket", 'evidence_ref', ['reason' => 'foreign_evidence']);
+            }
+            $c = Maintenance::change('complete', $staffId, $note, 'PLANNED', ['stored_status' => 'COMPLETED', 'completed_on' => $on, 'evidence_ref' => $ref, 'completion_note' => $note], $now);
+            $r['s'] = Maintenance::COMPLETED;
+            $r['co'] = $on;
+            $r['cy'] = $staffId;
+            if ($ref !== null) $r['e'] = $ref; else unset($r['e']);
+            unset($r['nn']);
+            return [$r, $c, $note !== null ? ['completion_note' => $note] : []];
+        });
     }
 
-    /** POST /maintenances/{id}/cancel {base:<status seen>, reason} — manager; PLANNED only; the row stays. */
+    /** POST /maintenances/{id}/cancel {base:<status seen>, reason} — manager; PLANNED only; the record stays. */
     static function cancel(Request $req) {
         Maintenance::ready();
         $reason = self::text($req->input('reason'), 'reason', true);
         $base = self::baseStatus($req);
-        $r = self::load($req);
-        if ($r['stored_status'] === Maintenance::CANCELLED)
-            return self::noop($r);
-        if ($r['stored_status'] !== $base)
-            self::conflict('base_mismatch', $r, $r['stored_status'], $base);
-        self::mustBe($r, Maintenance::PLANNED);
         $staffId = (int) $req->staff->getId();
-        return self::commit($r, ['stored_status' => "'CANCELLED'", 'active_date' => 'NULL', 'cancel_reason' => self::q($reason)],
-            Maintenance::change('cancel', $staffId, $reason, 'PLANNED', 'CANCELLED'), $staffId);
+        return self::transition($req, function ($uuid, $r, array $plan, $now, &$j) use ($reason, $base, $staffId) {
+            if ($r['s'] === Maintenance::CANCELLED)
+                return null;
+            if ($r['s'] !== $base)
+                self::conflict('base_mismatch', $plan['eq'], $uuid, $r, $r['s'], $base, $j);
+            self::mustBe($plan['eq'], $uuid, $r, Maintenance::PLANNED, $j);
+            $c = Maintenance::change('cancel', $staffId, $reason, 'PLANNED', 'CANCELLED', $now);
+            $r['s'] = Maintenance::CANCELLED;
+            return [$r, $c, ['cancel_reason' => $reason]];
+        });
     }
 
     /** POST /maintenances/{id}/revert {base:<status seen>, reason} — manager; COMPLETED -> PLANNED; completion fields kept in changes[]. */
@@ -221,17 +370,21 @@ final class Maintenances {
         Maintenance::ready();
         $reason = self::text($req->input('reason'), 'reason', true);
         $base = self::baseStatus($req);
-        $r = self::load($req);
-        if ($r['stored_status'] === Maintenance::PLANNED)
-            return self::noop($r);
-        if ($r['stored_status'] !== $base)
-            self::conflict('base_mismatch', $r, $r['stored_status'], $base);
-        self::mustBe($r, Maintenance::COMPLETED);
         $staffId = (int) $req->staff->getId();
-        $from = ['stored_status' => 'COMPLETED', 'completed_on' => $r['completed_on'], 'completed_by' => $r['completed_by'] === null ? null : (int) $r['completed_by'],
-                 'evidence_ref' => $r['evidence_ref'], 'completion_note' => $r['completion_note']];
-        return self::commit($r, ['stored_status' => "'PLANNED'", 'completed_on' => 'NULL', 'completed_by' => 'NULL', 'evidence_ref' => 'NULL', 'completion_note' => 'NULL'],
-            Maintenance::change('revert', $staffId, $reason, $from, ['stored_status' => 'PLANNED']), $staffId);
+        return self::transition($req, function ($uuid, $r, array $plan, $now, &$j) use ($reason, $base, $staffId) {
+            if ($r['s'] === Maintenance::PLANNED)
+                return null;
+            if ($r['s'] !== $base)
+                self::conflict('base_mismatch', $plan['eq'], $uuid, $r, $r['s'], $base, $j);
+            self::mustBe($plan['eq'], $uuid, $r, Maintenance::COMPLETED, $j);
+            $dto = Maintenance::dto($uuid, $plan['eq'], $r, $j);
+            $from = ['stored_status' => 'COMPLETED', 'completed_on' => $dto['completed_on'], 'completed_by' => $dto['completed_by'],
+                     'evidence_ref' => $dto['evidence_ref'], 'completion_note' => $dto['completion_note']];
+            $c = Maintenance::change('revert', $staffId, $reason, $from, ['stored_status' => 'PLANNED'], $now);
+            $r['s'] = Maintenance::PLANNED;
+            unset($r['co'], $r['cy'], $r['e'], $r['nn']);
+            return [$r, $c, []];
+        });
     }
 
     /** POST /maintenances/{id}/link {base:null, ticket_id, reason?} — PLANNED without Ticket; needs ticket.view on the target. */
@@ -242,22 +395,30 @@ final class Maintenances {
             throw ApiError::validation("'ticket_id' must be a positive integer", 'ticket_id');
         $reason = self::text($req->input('reason'), 'reason', false);
         $base = self::baseTicket($req);
-        $r = self::load($req);
-        // Same answer for "does not exist" and "not yours": linking cannot probe Tickets the agent may not see.
-        require_once(INCLUDE_DIR . 'class.ticket.php');
-        $t = \Ticket::lookup($tid);
-        if (!$t || !$t->checkStaffPerm($req->staff))
-            throw new ApiError('forbidden', 'You cannot access this ticket', 'ticket_id');
-        self::mustBe($r, Maintenance::PLANNED);
-        $cur = $r['ticket_id'] === null ? null : (int) $r['ticket_id'];
-        if ($cur === $tid)
-            return self::noop($r);
-        if ($cur !== $base)
-            self::conflict('base_mismatch', $r, $cur, $base);
-        if ($cur !== null)
-            self::conflict('ticket_already_linked', $r, $cur, $base);
         $staffId = (int) $req->staff->getId();
-        return self::commit($r, ['ticket_id' => (string) $tid], Maintenance::change('link', $staffId, $reason, null, $tid), $staffId);
+        $staff = $req->staff;
+        $seen = null;
+        return self::transition($req, function ($uuid, $r, array $plan, $now, &$j) use ($tid, $reason, $base, $staffId, $staff, &$seen) {
+            // Same answer for "does not exist" and "not yours": linking cannot probe Tickets the agent may not see.
+            if ($seen === null) {
+                require_once(INCLUDE_DIR . 'class.ticket.php');
+                $t = \Ticket::lookup($tid);
+                $seen = $t && $t->checkStaffPerm($staff);
+            }
+            if (!$seen)
+                throw new ApiError('forbidden', 'You cannot access this ticket', 'ticket_id');
+            self::mustBe($plan['eq'], $uuid, $r, Maintenance::PLANNED, $j);
+            $cur = isset($r['t']) ? (int) $r['t'] : null;
+            if ($cur === $tid)
+                return null;
+            if ($cur !== $base)
+                self::conflict('base_mismatch', $plan['eq'], $uuid, $r, $cur, $base, $j);
+            if ($cur !== null)
+                self::conflict('ticket_already_linked', $plan['eq'], $uuid, $r, $cur, $base, $j);
+            $c = Maintenance::change('link', $staffId, $reason, null, $tid, $now);
+            $r['t'] = $tid;
+            return [$r, $c, []];
+        });
     }
 
     /** POST /maintenances/{id}/unlink {base:<ticket_id seen>, reason} — PLANNED; needs no access to the Ticket. */
@@ -265,53 +426,80 @@ final class Maintenances {
         Maintenance::ready();
         $reason = self::text($req->input('reason'), 'reason', true);
         $base = self::baseTicket($req);
-        $r = self::load($req);
-        $cur = $r['ticket_id'] === null ? null : (int) $r['ticket_id'];
-        self::mustBe($r, Maintenance::PLANNED);
-        if ($cur === null)
-            return self::noop($r);
-        if ($cur !== $base)
-            self::conflict('base_mismatch', $r, $cur, $base);
         $staffId = (int) $req->staff->getId();
-        return self::commit($r, ['ticket_id' => 'NULL'], Maintenance::change('unlink', $staffId, $reason, $cur, null), $staffId);
+        return self::transition($req, function ($uuid, $r, array $plan, $now, &$j) use ($reason, $base, $staffId) {
+            $cur = isset($r['t']) ? (int) $r['t'] : null;
+            self::mustBe($plan['eq'], $uuid, $r, Maintenance::PLANNED, $j);
+            if ($cur === null)
+                return null;
+            if ($cur !== $base)
+                self::conflict('base_mismatch', $plan['eq'], $uuid, $r, $cur, $base, $j);
+            $c = Maintenance::change('unlink', $staffId, $reason, $cur, null, $now);
+            unset($r['t']);
+            return [$r, $c, []];
+        });
+    }
+
+    /**
+     * Runs one transition: $eval($uuid, $core, $plan, $now, &$journals) returns null (no-op: 200 applied=false), throws
+     * (validation / conflict, nothing written) or returns [new core, change, x]; the engine stamps updated_at/by, writes
+     * the journal and swaps the plan, re-evaluating on a lost swap.
+     */
+    private static function transition(Request $req, callable $eval) {
+        $uuid = strtolower((string) $req->param('uuid'));
+        $staffId = (int) $req->staff->getId();
+        $jids = []; $journals = [];
+        try {
+            for ($attempt = 0; $attempt < Maintenance::ATTEMPTS; $attempt++) {
+                Maintenance::backoff($attempt);
+                list($eq, $row) = self::load($req);
+                $core = $row['state']['r'][$uuid];
+                $now = Maintenance::now();
+                $res = $eval($uuid, $core, $row['state'], $now, $journals);
+                if ($res === null) {
+                    Maintenance::orphanUnreferenced($jids, []);
+                    return Res::ok(Maintenance::dto($uuid, $eq, $core, $journals), ['applied' => false]);
+                }
+                list($new, $change, $x) = $res;
+                $new['ua'] = Maintenance::stamp($now, $core['ua']);
+                $new['ub'] = $staffId;
+                $after = $row['state'];
+                $after['r'][$uuid] = $new;
+                $done = Maintenance::commit($eq, $row, $after, [$uuid => ['c' => [$change], 'x' => $x]], $jids, $journals);
+                if ($done !== false)
+                    return Res::ok(Maintenance::dto($uuid, $eq, $done['r'][$uuid], $journals), ['applied' => true]);
+            }
+        } catch (ApiError $e) {
+            Maintenance::orphanUnreferenced($jids, []);
+            throw $e;
+        }
+        Maintenance::orphanUnreferenced($jids, []);
+        throw Maintenance::busy();
     }
 
     // ==================================================================
     // helpers
     // ==================================================================
 
+    /** @return array [eq, plan row, uuid] */
     private static function load(Request $req) {
-        $r = Maintenance::find(strtolower($req->param('uuid')));
-        if (!$r) throw ApiError::notFound('maintenance');
-        return $r;
+        $uuid = strtolower((string) $req->param('uuid'));
+        $loc = preg_match(Documents::UUID, $uuid) ? Maintenance::locate($uuid) : null;
+        if (!$loc) throw ApiError::notFound('maintenance');
+        return [$loc[0], $loc[1], $uuid];
     }
 
-    private static function noop(array $r) { return Res::ok(Maintenance::dto($r), ['applied' => false]); }
-
-    /** Apply with compare-and-swap; a lost race answers the same typed conflict as a stale base. */
-    private static function commit(array $r, array $set, array $change, $staffId, $uniqueSlot = false) {
-        if (!Maintenance::update($r, $set, $change, $staffId)) {
-            $now = Maintenance::find($r['id']);
-            if ($now && $now['rev'] === $r['rev'] && $uniqueSlot)
-                self::conflict('duplicate', $now, $now['scheduled_date'], $r['scheduled_date']);
-            self::conflict('base_mismatch', $now ?: $r, null, null);
-        }
-        return Res::ok(Maintenance::dto(Maintenance::find($r['id'])), ['applied' => true]);
-    }
-
-    private static function conflict($reason, array $r, $current, $base, array $extra = []) {
+    private static function conflict($reason, $eq, $uuid, array $r, $current, $base, array &$j, array $extra = []) {
         throw ApiError::conflict('The maintenance changed on the server (' . $reason . ')', array_merge([
             'reason' => $reason, 'current' => $current, 'base' => $base,
-            'last_change' => Maintenance::lastChange($r), 'record' => Maintenance::dto($r),
+            'last_change' => Maintenance::lastChange($r, $j), 'record' => Maintenance::dto($uuid, $eq, $r, $j),
         ], $extra));
     }
 
-    private static function mustBe(array $r, $status) {
-        if ($r['stored_status'] !== $status)
-            self::conflict('invalid_state', $r, $r['stored_status'], null, ['required' => $status]);
+    private static function mustBe($eq, $uuid, array $r, $status, array &$j) {
+        if ($r['s'] !== $status)
+            self::conflict('invalid_state', $eq, $uuid, $r, $r['s'], null, $j, ['required' => $status]);
     }
-
-    private static function q($v) { return $v === null ? 'NULL' : \OstWorkflow\Store::esc($v); }
 
     private static function bad($msg, $field) { throw ApiError::validation($msg, $field); }
 
@@ -356,5 +544,46 @@ final class Maintenances {
         if (!ctype_digit((string) $v) || (int) $v < 1)
             throw ApiError::validation("'$key' must be a positive integer", $key);
         return (int) $v;
+    }
+
+    // ------------------------------------------------------------------ import validation
+
+    /** @return string|null why this is not a record of the retired store's DTO */
+    private static function verbatimError($it) {
+        $keys = ['id', 'equipment_id', 'scheduled_date', 'stored_status', 'ticket_id', 'completed_on', 'completed_by', 'evidence_ref',
+                 'completion_note', 'cancel_reason', 'changes', 'created_at', 'created_by', 'updated_at', 'updated_by'];
+        if (!is_array($it)) return 'not an object';
+        $got = array_keys($it); sort($got); $want = $keys; sort($want);
+        if ($got !== $want) return 'keys must be exactly: ' . implode(', ', $keys);
+        $z = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/';
+        $posOrNull = function ($v) { return $v === null || (is_int($v) && $v >= 1); };
+        $strOrNull = function ($v) { return $v === null || is_string($v); };
+        if (!is_int($it['equipment_id']) || $it['equipment_id'] < 1) return 'equipment_id';
+        if (self::dateOrNull($it['scheduled_date']) === null) return 'scheduled_date';
+        if (!in_array($it['stored_status'], [Maintenance::PLANNED, Maintenance::COMPLETED, Maintenance::CANCELLED], true)) return 'stored_status';
+        if (!$posOrNull($it['ticket_id']) || !$posOrNull($it['completed_by'])) return 'ticket_id / completed_by';
+        if ($it['completed_on'] !== null && self::dateOrNull($it['completed_on']) === null) return 'completed_on';
+        if ($it['evidence_ref'] !== null && (!is_string($it['evidence_ref']) || !preg_match('/^doc:[0-9a-f-]{36}@\d{1,4}$/', $it['evidence_ref']))) return 'evidence_ref';
+        if (!$strOrNull($it['completion_note']) || !$strOrNull($it['cancel_reason'])) return 'completion_note / cancel_reason';
+        if (!is_array($it['changes']) || array_keys($it['changes']) !== range(0, count($it['changes']) - 1) || !$it['changes']) return 'changes';
+        foreach ($it['changes'] as $c)
+            if (!is_array($c) || array_diff(['kind', 'at', 'by', 'reason', 'from', 'to'], array_keys($c)) || count($c) !== 6) return 'changes[] entry';
+        if (!is_string($it['created_at']) || !preg_match($z, $it['created_at']) || !is_string($it['updated_at']) || !preg_match($z, $it['updated_at'])) return 'created_at / updated_at';
+        if (!is_int($it['created_by']) || $it['created_by'] < 0 || !is_int($it['updated_by']) || $it['updated_by'] < 0) return 'created_by / updated_by';
+        if (($it['stored_status'] === Maintenance::COMPLETED) !== ($it['completed_on'] !== null)) return 'completed_on must be set exactly when COMPLETED';
+        return null;
+    }
+
+    private static function sameRecord(array $stored, $given) {
+        if (!is_array($given)) return false;
+        $given['id'] = strtolower((string) ($given['id'] ?? ''));
+        return json_encode(self::sortKeys($stored)) === json_encode(self::sortKeys($given));
+    }
+
+    private static function sortKeys($v) {
+        if (!is_array($v)) return $v;
+        if (array_keys($v) !== range(0, count($v) - 1)) ksort($v);
+        foreach ($v as $k => $x) $v[$k] = self::sortKeys($x);
+        return $v;
     }
 }

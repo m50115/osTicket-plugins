@@ -91,6 +91,18 @@ class OstWorkflowConfig extends PluginConfig {
                 'required' => false,
                 'configuration' => array('size' => 6, 'length' => 6),
             )),
+            'maintenance_list_id' => new TextboxField(array(
+                'label'    => __('Custom list id of the maintenance store'),
+                'hint'     => __('A dedicated, empty custom list (Admin > Manage > Lists) where the plugin keeps the preventive maintenance records as internal items. Never edit or delete its items by hand. Empty = every maintenance route answers 503.'),
+                'required' => false,
+                'configuration' => array('size' => 6, 'length' => 6),
+            )),
+            'maintenance_import_enabled' => new TextboxField(array(
+                'label'    => __('Maintenance import enabled (1 = on)'),
+                'hint'     => __('Only for the one-shot migration of the retired maintenance table (POST /maintenances/import, administrators). Leave empty otherwise.'),
+                'required' => false,
+                'configuration' => array('size' => 2, 'length' => 3),
+            )),
             'modules' => new TextboxField(array(
                 'label'    => __('Enabled app modules (comma separated)'),
                 'default'  => 'tickets,service_orders,pdf_signer,quotes,contacts,support,configuration',
