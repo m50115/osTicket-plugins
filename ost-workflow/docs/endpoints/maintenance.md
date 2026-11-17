@@ -95,6 +95,17 @@ Policy `maintenance.import`: administrator **and** plugin setting `maintenance_i
 
 Procedure (`prod-sandbox/m8-migrate.py`, HTTP only, never the database): `export` with the old phar deployed (walks `GET /maintenances`) → deploy the new phar, prepare the store list, set `maintenance_import_enabled=1` → `import` → `verify` (DTO parity record by record, `--expect TOTAL,PLANNED,COMPLETED,CANCELLED`) → empty `maintenance_import_enabled`. The retired table is left untouched (dropping it is a separate decision).
 
+## Known limits of the native store (residuals, see the review of 2026-11-16)
+
+- **Capacity per equipment (~375 records, all states):** the plan row never shrinks (cancelled records and audit references stay). Once full, **every** write to that equipment, transitions included, answers `413 too_large plan_full` (checked before writing). Not reachable with today's data (max 118); an archive of closed records is the planned remedy.
+- **Registry:** about 4 600 equipments per store list (`413 too_large registry_full` beyond, checked before writing).
+- **Cost:** an unfiltered feed page and each batch attempt read every plan of the store (O(store) per request; the retired table used indexes). Fine at today's size (55 plans); to be measured in the sandbox spike.
+- **SCP:** pressing *Save* on a store item rewrites it; the plan is then reported damaged and **every** unfiltered feed page and batch answers 503 until the item is restored from backup.
+- **Same id under two equipments:** only two concurrent creates of one client id with different equipment (never the app). The later copy retracts itself when it sees the earlier one; if the earlier commits after that check, both stay stored but every reader resolves the id to the earlier copy (the other is never served and still holds its date slot).
+- **Feed window:** live writes are stamped with the database clock right before their journal and swap (milliseconds, vs microseconds for the table); an incremental reader could miss a record committed inside that window. The app walks the full feed and does not use `watermark`.
+- **Contract deltas:** under contention a lost swap is re-evaluated (it can answer 200 where the table answered 409 `base_mismatch` with null `current`/`base`); 16 lost swaps in a row answer `409 locked busy`; `413 too_large` is new.
+- **Import:** timestamps keep second precision (`.000000`): after the migration, clients must resync from scratch (a watermark issued by the table could skip records). The import switch must be emptied by hand after the migration.
+
 ## Tested
 
 - `prod-sandbox/maintenance-unit.php` (no server): the real handler and engine against an in-memory store with the native compare-and-swap semantics — every rule of the state machine, the DTO, the feed, import parity, capacity, damage detection, and **injected concurrent writers** (same slot, other record of the same plan, same record, new-equipment registration, repeated lost swaps).

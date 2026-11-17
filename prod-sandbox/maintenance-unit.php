@@ -72,7 +72,8 @@ final class MemStore implements MaintenanceStore {
     function items(array $ids) { $o = []; foreach ($ids as $i) if (isset($this->items[$i])) $o[$i] = $this->items[$i]['raw']; return $o; }
     function itemsContaining(array $ids, $n) { return array_filter($this->items($ids), function ($r) use ($n) { return strpos((string) $r, $n) !== false; }); }
     function insert($value, $raw) { $id = $this->next++; $this->items[$id] = ['value' => $value, 'raw' => $raw, 'extra' => null]; return $id; }
-    function rewrite($id, $raw) { $this->items[$id]['raw'] = $raw; }
+    public $adopt = true;
+    function adoptable() { return $this->adopt; }
     function cas($id, $old, $new) { $this->casCalls++; $this->fire(); if ($this->items[$id]['raw'] !== $old) return false; $this->items[$id]['raw'] = $new; return true; }
     function orphan($id) { $this->items[$id]['extra'] = 'orphan'; }
     function now() { $this->clock++; return sprintf('2026-11-16 10:%02d:%02d.%06d', intdiv($this->clock, 60) % 60, $this->clock % 60, $this->clock); }
@@ -336,6 +337,27 @@ $store->hook = $hammer;
 $r = run('cancel', req($ADMIN, ['base' => 'PLANNED', 'reason' => 'contended'], ['uuid' => $y]));
 check("race: 4 consecutive lost swaps -> still one clean commit", $r[0] === 200 && $r[1]['data']['stored_status'] === 'CANCELLED' && count($r[1]['data']['changes']) === 2, $r);
 $store->hook = null;
+
+$U = uid();
+$store->hook = function () use ($ADMIN, $U, $store) { $c = $store->clock; $store->clock = 0; run('batch', req($ADMIN, ['items' => [['id' => $U, 'equipment_id' => EB, 'scheduled_date' => '2034-01-01']]])); $store->clock = $c + 10; };
+$r = run('batch', req($ADMIN, ['items' => [['id' => $U, 'equipment_id' => EA, 'scheduled_date' => '2034-01-01']]]));
+check("clash: same id created concurrently under two equipments -> the later copy retracts itself and answers exists (the earlier record)", $r[1]['data'][0]['result'] === 'exists' && $r[1]['data'][0]['maintenance']['equipment_id'] === EB, $r);
+$planA2 = json_decode($store->items[json_decode($store->reg, true)['plans'][EA]]['raw'], true);
+check("clash: the retracted copy is gone from its plan (its slot is free again)", !isset($planA2['r'][$U]) && run('batch', req($ADMIN, ['items' => [['id' => uid(), 'equipment_id' => EA, 'scheduled_date' => '2034-01-01']]]))[1]['data'][0]['result'] === 'created');
+$V = uid();
+$store->hook = function () use ($ADMIN, $V) { run('batch', req($ADMIN, ['items' => [['id' => $V, 'equipment_id' => EB, 'scheduled_date' => '2035-01-01']]])); };
+run('batch', req($ADMIN, ['items' => [['id' => $V, 'equipment_id' => EA, 'scheduled_date' => '2035-01-01']]]));
+list($allV) = walk($AG2);
+check("clash residual (winner committed after the loser checked): readers still see ONE record for the id (feed and show agree)", count(array_filter($allV, function ($x) use ($V) { return $x['id'] === $V; })) === 1
+      && array_values(array_filter($allV, function ($x) use ($V) { return $x['id'] === $V; }))[0]['equipment_id'] === run('show', req($ADMIN, [], ['uuid' => $V]))[1]['data']['equipment_id']);
+$store->hook = null;
+check("registry names its list (a setting pointed at another list is refused)", json_decode($store->reg, true)['list'] === LIST_STORE);
+$conf->v['maintenance_list_id'] = '61';
+check("... maintenance_list_id changed to another id over the same registry -> 503", run('index', req($ADMIN))[0] === 503);
+$conf->v['maintenance_list_id'] = (string) LIST_STORE;
+$keep = $store->reg; $store->reg = ''; $store->adopt = false;
+check("empty registry on a list that already holds store items (reset/other list) -> 503, never an empty store", run('index', req($ADMIN))[0] === 503);
+$store->reg = $keep; $store->adopt = true;
 
 // ---- import (one-shot migration, verbatim records) ---------------------------------------------------------------------
 $conf->v[Maintenance::SETTING_IMPORT] = '';

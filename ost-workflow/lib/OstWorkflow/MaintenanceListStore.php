@@ -65,15 +65,11 @@ final class MaintenanceListStore implements MaintenanceStore {
     function insert($value, $raw) {
         $it = \DynamicListItem::create([
             'list_id' => $this->listId, 'status' => self::ST_INTERNAL, 'value' => (string) $value,
-            'extra' => null, 'sort' => 1, 'properties' => (string) $raw,
+            'extra' => null, 'sort' => 1, 'properties' => (string) $raw, 'configuration' => null,
         ]);
         if (!$it->save() || !$it->getId())
             throw new ApiError('internal_error', 'Unable to write the maintenance store');
         return (int) $it->getId();
-    }
-
-    function rewrite($id, $raw) {
-        \DynamicListItem::objects()->filter(['id' => (int) $id])->update(['properties' => (string) $raw]);
     }
 
     function cas($id, $old, $new) {
@@ -88,6 +84,12 @@ final class MaintenanceListStore implements MaintenanceStore {
         } catch (\Throwable $t) {
             // forensics only
         }
+    }
+
+    function adoptable() {
+        require_once(INCLUDE_DIR . 'class.dynamic_forms.php');
+        return !\DynamicListItem::objects()->filter(['list_id' => $this->listId, 'value__startswith' => 'BCW_PM'])->exists()
+            && !\DynamicFormField::objects()->filter(['type' => 'list-' . $this->listId])->exists();
     }
 
     function now() {

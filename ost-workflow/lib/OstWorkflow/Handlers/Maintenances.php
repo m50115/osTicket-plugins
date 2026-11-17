@@ -152,6 +152,8 @@ final class Maintenances {
             $x = [];
             if ($it['completion_note'] !== null) $x['completion_note'] = $it['completion_note'];
             if ($it['cancel_reason'] !== null) $x['cancel_reason'] = $it['cancel_reason'];
+            if (!Maintenance::journalFits(strtolower($it['id']), $it['equipment_id'], array_values($it['changes']), $x))
+                return ['reject' => ['invalid_record', 'the record (audit and texts) is too large to store']];
             return ['eq' => $it['equipment_id'], 'core' => $core, 'c' => array_values($it['changes']), 'x' => $x, 'verbatim' => $it];
         }, true);
     }
@@ -214,14 +216,14 @@ final class Maintenances {
                         continue;
                     }
                     $work[$eq]['r'][$id] = $b['core'];
-                    $ops[$eq][$id] = ['c' => $b['c'], 'x' => $b['x']];
+                    $ops[$eq][$id] = ['c' => $b['c'], 'x' => $b['x']] + ($verbatim ? [] : ['restamp' => ['created' => true, 'prev' => null]]);
                     $index[$id] = $eq;
                     $answered[$id] = true;
                     $out[] = ['id' => $id, 'result' => 'created', '_eq' => $eq];
                 }
                 ksort($ops);
                 // Capacity is checked for every touched plan before anything is written: the request fails whole.
-                foreach ($ops as $eq => $o) Maintenance::assertFits($work[$eq], array_keys($o));
+                foreach ($ops as $eq => $o) Maintenance::assertFits($work[$eq], $o);
                 $lost = false;
                 foreach ($ops as $eq => $o) {
                     $after = Maintenance::commit($eq, $plans[$eq] ?? null, $work[$eq], $o, $jids, $journals);
@@ -235,10 +237,32 @@ final class Maintenances {
             }
             if ($lost) continue;
             Maintenance::orphanUnreferenced($jids, self::referenced($jids, $createdByUs));
+            self::settleClashes($out, $work);
             return self::answer($out, $work, $journals, $verbatim);
         }
         Maintenance::orphanUnreferenced($jids, self::referenced($jids, $createdByUs));
         throw Maintenance::busy();
+    }
+
+    /**
+     * The same client id created concurrently under two equipments (never the app): the copy with the later (created_at,
+     * equipment) retracts its own record and answers `exists` with the earlier one (the one every reader already
+     * resolves). A copy committed after this check is still resolved by readers to one record (Maintenance::locate/page).
+     */
+    private static function settleClashes(array &$out, array &$work) {
+        foreach ($out as $k => $o) {
+            if (($o['result'] ?? null) !== 'created' || !isset($o['_eq'])) continue;
+            $mine = $work[$o['_eq']]['r'][$o['id']];
+            foreach (Maintenance::copiesElsewhere($o['id'], $o['_eq']) as $eq => $core) {
+                if ([$core['ca'], (int) $eq] < [$mine['ca'], (int) $o['_eq']]) {
+                    Maintenance::retract($o['_eq'], $o['id']);
+                    unset($work[$o['_eq']]['r'][$o['id']]);
+                    $work[$eq]['r'][$o['id']] = $core;
+                    $out[$k] = ['id' => $o['id'], 'result' => 'exists', '_eq' => $eq, '_verbatim' => $o['_verbatim'] ?? null];
+                    break;
+                }
+            }
+        }
     }
 
     private static function referenced(array $jids, array $createdByUs) {
@@ -448,33 +472,37 @@ final class Maintenances {
     private static function transition(Request $req, callable $eval) {
         $uuid = strtolower((string) $req->param('uuid'));
         $staffId = (int) $req->staff->getId();
-        $jids = []; $journals = [];
+        $jids = []; $journals = []; $done = false; $noop = null;
         try {
-            for ($attempt = 0; $attempt < Maintenance::ATTEMPTS; $attempt++) {
+            for ($attempt = 0; $attempt < Maintenance::ATTEMPTS && $done === false && $noop === null; $attempt++) {
                 Maintenance::backoff($attempt);
                 list($eq, $row) = self::load($req);
                 $core = $row['state']['r'][$uuid];
                 $now = Maintenance::now();
                 $res = $eval($uuid, $core, $row['state'], $now, $journals);
-                if ($res === null) {
-                    Maintenance::orphanUnreferenced($jids, []);
-                    return Res::ok(Maintenance::dto($uuid, $eq, $core, $journals), ['applied' => false]);
-                }
+                if ($res === null) { $noop = $core; break; }
                 list($new, $change, $x) = $res;
                 $new['ua'] = Maintenance::stamp($now, $core['ua']);
                 $new['ub'] = $staffId;
                 $after = $row['state'];
                 $after['r'][$uuid] = $new;
-                $done = Maintenance::commit($eq, $row, $after, [$uuid => ['c' => [$change], 'x' => $x]], $jids, $journals);
-                if ($done !== false)
-                    return Res::ok(Maintenance::dto($uuid, $eq, $done['r'][$uuid], $journals), ['applied' => true]);
+                $done = Maintenance::commit($eq, $row, $after,
+                    [$uuid => ['c' => [$change], 'x' => $x, 'restamp' => ['created' => false, 'prev' => $core['ua']]]], $jids, $journals);
             }
         } catch (ApiError $e) {
             Maintenance::orphanUnreferenced($jids, []);
             throw $e;
         }
-        Maintenance::orphanUnreferenced($jids, []);
-        throw Maintenance::busy();
+        // Outside the try: once the swap landed its journal is referenced and must never be marked orphan.
+        if ($noop !== null) {
+            Maintenance::orphanUnreferenced($jids, []);
+            return Res::ok(Maintenance::dto($uuid, $eq, $noop, $journals), ['applied' => false]);
+        }
+        if ($done === false) {
+            Maintenance::orphanUnreferenced($jids, []);
+            throw Maintenance::busy();
+        }
+        return Res::ok(Maintenance::dto($uuid, $eq, $done['r'][$uuid], $journals), ['applied' => true]);
     }
 
     // ==================================================================

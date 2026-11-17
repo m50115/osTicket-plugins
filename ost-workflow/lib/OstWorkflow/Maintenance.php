@@ -109,11 +109,17 @@ final class Maintenance {
     static function registry() {
         $raw = self::store()->registry();
         $t = trim($raw);
-        if ($t === '' || $t === '[]' || $t === '{}' || $t === 'null')
+        if ($t === '' || $t === '[]' || $t === '{}' || $t === 'null') {
+            // An empty registry is adopted only on a list that holds no store item and feeds no form field: a setting
+            // pointed at another list (or a reset registry) is refused instead of being served as an empty store.
+            if (!self::store()->adoptable())
+                throw new ApiError('not_configured', "The list named by 'maintenance_list_id' is not an empty dedicated list (it has store items or is used by a form field)");
             return ['raw' => $raw, 'rev' => 0, 'plans' => []];
+        }
         $d = json_decode($raw, true);
-        if (!is_array($d) || ($d['bcw'] ?? null) !== self::REG || !isset($d['rev'], $d['plans']) || !is_array($d['plans']))
-            throw new ApiError('not_configured', "The list named by 'maintenance_list_id' is not a maintenance store (its configuration holds other data)");
+        if (!is_array($d) || ($d['bcw'] ?? null) !== self::REG || !isset($d['rev'], $d['plans']) || !is_array($d['plans'])
+            || (isset($d['list']) && (int) $d['list'] !== self::listIdOrZero()))
+            throw new ApiError('not_configured', "The list named by 'maintenance_list_id' is not this maintenance store (its configuration holds other data)");
         $plans = [];
         foreach ($d['plans'] as $eq => $id) $plans[(int) $eq] = (int) $id;
         return ['raw' => $raw, 'rev' => (int) $d['rev'], 'plans' => $plans];
@@ -123,7 +129,16 @@ final class Maintenance {
         ksort($plans);
         $p = [];
         foreach ($plans as $eq => $id) $p[(string) $eq] = (int) $id;
-        return self::enc(['bcw' => self::REG, 'rev' => (int) $rev, 'plans' => (object) $p]);
+        $s = self::enc(['bcw' => self::REG, 'list' => self::listIdOrZero(), 'rev' => (int) $rev, 'plans' => (object) $p]);
+        if (strlen($s) > self::ITEM_MAX)
+            throw new ApiError('too_large', 'The maintenance registry is full (' . count($plans) . ' equipments)', null, ['reason' => 'registry_full']);
+        return $s;
+    }
+
+    /** The configured store list id (0 in tests without the setting). */
+    private static function listIdOrZero() {
+        $raw = trim((string) Runtime::setting(self::SETTING_STORE, ''));
+        return ctype_digit($raw) ? (int) $raw : 0;
     }
 
     static function emptyPlan($eq) { return ['eq' => (int) $eq, 'rev' => 0, 'r' => []]; }
@@ -144,10 +159,20 @@ final class Maintenance {
     }
 
     /** Throws too_large unless $p still fits once each of $uuids gets one more journal reference (checked before writing). */
-    static function assertFits(array $p, array $uuids) {
-        foreach ($uuids as $u) $p['r'][$u]['j'][] = 2147483647;
+    static function assertFits(array $p, array $ops) {
+        foreach ($ops as $u => $op) {
+            self::encodeJournal($u, $p['eq'], $op['c'], $op['x'] ?? []);
+            $p['r'][$u]['j'][] = 2147483647;
+            if (array_key_exists('completion_note', $op['x'] ?? [])) $p['r'][$u]['nn'] = 2147483647;
+            if (array_key_exists('cancel_reason', $op['x'] ?? [])) $p['r'][$u]['xr'] = 2147483647;
+        }
         $p['rev'] = (int) $p['rev'] + 1;
         self::encodePlan($p);
+    }
+
+    /** Size of one record's journal (import rejects oversized records per item). */
+    static function journalFits($uuid, $eq, array $changes, array $x) {
+        try { self::encodeJournal($uuid, $eq, $changes, $x); return true; } catch (ApiError $e) { return false; }
     }
 
     private static function encodeJournal($uuid, $eq, array $changes, array $x) {
@@ -274,9 +299,17 @@ final class Maintenance {
         } else {
             list(, $plans) = self::loadAll();
         }
+        // One row per id: a copy left under another equipment by a cross-equipment id clash is never served twice.
+        $canon = [];
+        foreach ($plans as $eq => $p)
+            foreach ($p['state']['r'] as $uuid => $core) {
+                $k = [$core['ca'], (int) $eq];
+                if (!isset($canon[$uuid]) || $k < $canon[$uuid]) $canon[$uuid] = $k;
+            }
         $rows = [];
         foreach ($plans as $eq => $p)
             foreach ($p['state']['r'] as $uuid => $core) {
+                if ($canon[$uuid][1] !== (int) $eq) continue;
                 if ($ticketId && (int) ($core['t'] ?? 0) !== (int) $ticketId) continue;
                 if ($after && ($core['ua'] < $after['t'] || ($core['ua'] === $after['t'] && strcmp((string) $uuid, $after['i']) <= 0))) continue;
                 $rows[] = [(string) $uuid, (int) $eq, $core];
@@ -319,33 +352,72 @@ final class Maintenance {
 
     /**
      * Commits $after over $row (null: the equipment has no plan yet) with ONE swap of the plan row. $ops = [uuid =>
-     * ['c' => [changes], 'x' => [completion_note?, cancel_reason?]]]: one journal per uuid is written first (reusing the
-     * attempt-stable ids in $jids) and linked into the record. @return array|false the committed plan state, or false
-     * when someone else changed the plan (the caller re-reads and re-evaluates).
+     * ['c' => [changes], 'x' => [completion_note?, cancel_reason?], 'restamp' => ['created' => bool, 'prev' => ua|null]?]].
+     * The plan is registered first; then the database clock is read again and live writes are re-stamped with it right
+     * before their journals and the swap (so a record never lands in the feed behind a watermark already served, beyond
+     * the few milliseconds of one insert); a fresh journal is written per attempt (an earlier attempt's is orphaned).
+     * @return array|false the committed plan state, or false when someone else changed the plan (re-read, re-evaluate).
      */
     static function commit($eq, $row, array $after, array $ops, array &$jids, array &$journals) {
         $s = self::store();
+        if ($row === null) {
+            $row = self::register($eq);
+            if ($row === null) return false;
+        }
+        $now = self::now();
         foreach ($ops as $uuid => $op) {
             $x = $op['x'] ?? [];
-            $raw = self::encodeJournal($uuid, $eq, $op['c'], $x);
-            if (isset($jids[$uuid])) $s->rewrite($jids[$uuid], $raw);
-            else $jids[$uuid] = $s->insert(self::JOURNAL . ' ' . $uuid, $raw);
-            $jid = $jids[$uuid];
-            $journals[$jid] = self::decodeJournal($raw, $jid);
             $core = $after['r'][$uuid];
+            if (isset($op['restamp'])) {
+                $core['ua'] = self::stamp($now, $op['restamp']['prev']);
+                if ($op['restamp']['created']) $core['ca'] = $core['ua'];
+                $at = str_replace(' ', 'T', substr($core['ua'], 0, 19)) . 'Z';
+                foreach ($op['c'] as $k => $c) $op['c'][$k]['at'] = $at;
+            }
+            $raw = self::encodeJournal($uuid, $eq, $op['c'], $x);
+            if (isset($jids[$uuid])) $s->orphan($jids[$uuid]);
+            $jids[$uuid] = $jid = $s->insert(self::JOURNAL . ' ' . $uuid, $raw);
+            $journals[$jid] = self::decodeJournal($raw, $jid);
             $core['j'] = array_merge($core['j'] ?? [], [$jid]);
             if (array_key_exists('completion_note', $x)) $core['nn'] = $jid;
             if (array_key_exists('cancel_reason', $x)) $core['xr'] = $jid;
             $after['r'][$uuid] = $core;
         }
-        if ($row === null) {
-            $row = self::register($eq);
-            if ($row === null) return false;
-        }
         $after['eq'] = (int) $eq;
         $after['rev'] = (int) $row['state']['rev'] + 1;
         if (!$s->cas($row['id'], $row['raw'], self::encodePlan($after))) return false;
         return $after;
+    }
+
+    /**
+     * Copies of $uuid stored under OTHER equipments: [eq => core]. Only two concurrent creates of the same client id with
+     * different equipment (never the app) can produce one.
+     */
+    static function copiesElsewhere($uuid, $eq) {
+        $reg = self::registry();
+        $ids = $reg['plans']; unset($ids[(int) $eq]);
+        if (!$ids) return [];
+        $byId = array_flip($ids); $out = [];
+        foreach (self::store()->itemsContaining(array_values($ids), '"' . $uuid . '"') as $id => $raw) {
+            $st = self::decodePlan($raw, $byId[$id]);
+            if (isset($st['r'][$uuid])) $out[$byId[$id]] = $st['r'][$uuid];
+        }
+        return $out;
+    }
+
+    /** Removes a record this request just created (compensation of a cross-equipment id clash), with its own CAS loop. */
+    static function retract($eq, $uuid) {
+        for ($i = 0; $i < self::ATTEMPTS; $i++) {
+            self::backoff($i);
+            $row = self::loadPlan($eq);
+            if (!$row || !isset($row['state']['r'][$uuid])) return;
+            $after = $row['state']; unset($after['r'][$uuid]); $after['rev']++;
+            if (self::store()->cas($row['id'], $row['raw'], self::encodePlan($after))) {
+                foreach ($row['state']['r'][$uuid]['j'] ?? [] as $jid) self::store()->orphan($jid);
+                return;
+            }
+        }
+        throw self::busy();
     }
 
     /** Gives the equipment its (empty) plan row. @return array|null the row, or null when another writer registered one. */
