@@ -46,7 +46,8 @@ $errors = [];
 if (!$id) {
     $vars = ['id' => null, 'username' => $username, 'firstname' => 'Agent', 'lastname' => ucfirst($username),
         'email' => $username . '@example.com', 'dept_id' => $deptId, 'role_id' => (int) $roleId,
-        'islocked' => '1', 'isvisible' => '1', 'isadmin' => isset($opt['admin']) ? 1 : 0, 'passwd1' => $pass, 'passwd2' => $pass, 'perms' => []];
+        'islocked' => '1', 'isvisible' => '1', 'passwd1' => $pass, 'passwd2' => $pass, 'perms' => []];
+    if (isset($opt['admin'])) $vars['isadmin'] = 1;   // the model reads the KEY's presence as the checkbox: never send isadmin=0
     $s = Staff::create();   // no vars: the model would take passwd1/islocked… as columns (DB error 1054); update() maps them
 
     if (!$s->update($vars, $errors)) {

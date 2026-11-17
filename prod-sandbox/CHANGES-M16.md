@@ -28,3 +28,8 @@ Reconciliation is practical (M16 compares against the official state), NOT an ab
 - ci-check.sh: new guards (no CREATE/DROP/ALTER TABLE, no Idempotency::/Throttle::/ledger name; no raw INSERT/UPDATE on ticket/thread tables). All others kept.
 - gen-openapi.php: Idempotency-Key header is optional+deprecated; `OW_SRC=<ost-workflow dir>` mode generates without an osTicket install.
 - maintenance-unit.php: Documents stub accepts the new third argument.
+
+## Follow-ups (sandbox regression run)
+- e2e `maintenance_import_enabled`: delete the empty row a fresh install leaves before inserting `1` (test-only; failed only on a brand-new sandbox).
+- e2e D3 "foreign file still 403 for agent2": rewritten. Behaviour change by decision (files belong to osTicket, no ownership store): an unattached upload is readable by any agent that knows its random osTicket file key; attaching it to a ticket still requires access to that ticket. The assertion now checks that no attachment is created by the rejected inline reference.
+- create-agent.php: `isadmin` is sent only with `--admin` (osTicket reads the key's presence as the checkbox).

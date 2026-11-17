@@ -93,7 +93,8 @@ cmd_setup_config() {
   "$PHP80" "$HERE/plugin-admin.php" "$APP" install plugins/ost-workflow.phar | tail -1
   $PHP "$HERE/bootstrap-config.php" | tail -12
   mk() { "$PHP80" "$HERE/create-agent.php" "$@" --out="$FIX/$1.env" | grep -v credentials || true; }
-  mk agent2 3 --dept=1; mk agent3 2 --dept=1; mk agent2fa 3 --dept=1 --2fa=email
+  # fixed order = fixed staff ids (agent2fa 2, agent2 3, agent3 4, bcwqa 5, bcwview 6, bcwmgr 7): e2e.py and the evidence scripts rely on it
+  mk agent2fa 3 --dept=1 --2fa=email; mk agent2 3 --dept=1; mk agent3 2 --dept=1
   mk bcwqa 2 --dept=1; mk bcwview 4 --dept=1; mk bcwmgr 1 --dept=3 --admin
   "$PHP80" "$HERE/grant-perms.php" bcwqa user.create,user.edit,org.create,org.edit
   $PHP "$HERE/bootstrap-fixtures.php" | tail -3

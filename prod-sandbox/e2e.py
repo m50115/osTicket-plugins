@@ -905,7 +905,8 @@ else:
     r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": cid_html, "body_format": "html"}, token=tk2)
     check("D3: a foreign cid:<key> in an HTML note -> 422 validation_failed / inline_cid_not_supported", r.status == 422 and r.err == "validation_failed" and r.details.get("reason") == "inline_cid_not_supported" and (r.json["error"].get("field") == "body"), r.raw[:200])
     if TOK2:
-        check("D3: ... and the foreign file is still 403 for agent2 (accessibility unchanged)", file_status(PF["hash"], TOK2) == 403)
+        # M16 no-ledger: an UNATTACHED upload is no longer uploader-only (no ownership store); osTicket's random file key is the capability
+        check("D3: ... and the unattached foreign file is not served as a ticket attachment to agent2 (no attachment created)", n_rows("ost_attachment") == att0)
     r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": url_html, "body_format": "html"}, token=tk2)
     check("D3: a .../file.php?key=<key> URL (the core turns it into cid:) -> 422 inline_cid_not_supported", r.status == 422 and r.details.get("reason") == "inline_cid_not_supported", r.raw[:200])
     for label, h in (("single-quoted", '<img src=\'cid:%s\'>' % PF["hash"]), ("upper-case", '<IMG SRC="CID:%s">' % PF["hash"]),
@@ -1544,6 +1545,7 @@ else:
     imp["id"] = mid(); imp["equipment_id"] = EB; imp["scheduled_date"] = "2019-12-31"
     r = call("POST", "/maintenances/import", {"items": [imp]}, token=TOK)
     check("import: off by default -> 403 import_disabled", r.status == 403 and r.details.get("reason") == "import_disabled", r.raw[:160])
+    sql("delete from ost_config where namespace='%s' and `key`='maintenance_import_enabled'" % CFGNS)   # a fresh install leaves an empty row
     sql("insert into ost_config (namespace,`key`,value,updated) values ('%s','maintenance_import_enabled','1',NOW())" % CFGNS)
     try:
         r = call("POST", "/maintenances/import", {"items": [imp]}, token=TOK3)
