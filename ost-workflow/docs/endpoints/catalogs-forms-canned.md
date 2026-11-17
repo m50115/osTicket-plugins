@@ -4,7 +4,7 @@ Base: `/workflow/v1`. All routes are `GET`, need `Authorization: Bearer <token>`
 (unless noted). Success envelope `{"data": …, "meta": {…}}`; errors `{"error": {"code","message","field?","details?"}}`.
 Boolean query flags accept only `0|1|true|false` (anything else → `422 validation_failed` with `field`).
 Every list echoes the filters it applied in `meta.filters` (no hidden defaults). Timestamps are ISO-8601 UTC or `null`.
-Handlers: `lib/OstWorkflow/Handlers/{Catalogs,Forms,Canned}.php`. None of these mutates anything, so none takes an `Idempotency-Key`.
+Handlers: `lib/OstWorkflow/Handlers/{Catalogs,Forms,Canned}.php`. None of these mutates anything.
 
 ## Catalogs (`Catalogs.php`)
 

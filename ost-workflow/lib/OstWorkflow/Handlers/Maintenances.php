@@ -101,8 +101,8 @@ final class Maintenances {
     // ==================================================================
 
     /**
-     * POST /maintenances/batch {items:[{id, equipment_id, scheduled_date}]} (max 200). Idempotent per request (Idempotency-Key)
-     * AND per item (client uuid: inserts when absent). 200 with one result per item, in order:
+     * POST /maintenances/batch {items:[{id, equipment_id, scheduled_date}]} (max 200). Idempotent per item (client uuid: inserts when absent;
+     * no per-request ledger: replaying the same request answers `exists`). 200 with one result per item, in order:
      *   {id, result:'created'|'exists'|'rejected', code?, message?, maintenance?}
      * rejected codes: invalid_id, invalid_equipment, invalid_date, equipment_not_found (not in Installed Equipment),
      * equipment_retired, duplicate (details.existing_id holds the (equipment, date) slot among non-cancelled).
@@ -357,7 +357,7 @@ final class Maintenances {
             if ($ref !== null) {
                 if (!isset($r['t']))
                     throw ApiError::validation("'evidence_ref' needs a linked Ticket", 'evidence_ref', ['reason' => 'no_ticket']);
-                $doc = Documents::find(['uuid' => substr($ref, 4, 36), 'version' => (int) substr($ref, 41)]);
+                $doc = Documents::find(['uuid' => substr($ref, 4, 36), 'version' => (int) substr($ref, 41)], null, (int) $r['t']);
                 if (!$doc || $doc['ticket_id'] !== (int) $r['t'])
                     throw ApiError::validation("'evidence_ref' is not a published document of the linked Ticket", 'evidence_ref', ['reason' => 'foreign_evidence']);
             }

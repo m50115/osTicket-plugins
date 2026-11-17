@@ -3,7 +3,6 @@ namespace OstWorkflow\Handlers;
 
 use OstWorkflow\ApiError;
 use OstWorkflow\Auth;
-use OstWorkflow\RateLimit;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Time;
@@ -13,9 +12,9 @@ use OstWorkflow\Token;
 final class Session {
     static function routes() {
         return [
-            ['POST', '/auth/login',  'login',  ['auth' => false, 'idem' => false, 'max_body' => 4096]],
+            ['POST', '/auth/login',  'login',  ['auth' => false, 'max_body' => 4096]],
             ['GET',  '/auth/verify', 'verify', ['policy' => 'auth']],
-            ['POST', '/auth/logout', 'logout', ['policy' => 'auth', 'idem' => false, 'max_body' => 1024]],
+            ['POST', '/auth/logout', 'logout', ['policy' => 'auth', 'max_body' => 1024]],
         ];
     }
 
@@ -27,17 +26,12 @@ final class Session {
         if (strlen($username) > 128 || strlen($password) > 512)
             throw ApiError::validation('credentials too long');
 
-        $ip = RateLimit::ip($req);
-        RateLimit::check($username, $ip);
-
+        // Lockout / strikes are the native auth backends' business (StaffAuthenticationBackend::process).
         $staff = Auth::login($username, $password);
-        if (!$staff) {
-            RateLimit::fail($username, $ip);
+        if (!$staff)
             throw new ApiError('unauthorized', 'Invalid credentials');
-        }
-        RateLimit::clear($username, $ip);
 
-        list($token, $payload) = Token::issue($staff->getId());
+        list($token, $payload) = Token::issue($staff);
         return Res::ok([
             'token'      => $token,
             'expires_at' => Time::iso($payload['exp']),
@@ -55,15 +49,11 @@ final class Session {
     }
 
     /**
-     * Revokes the presented token; {"all": true} revokes every token of the agent.
+     * Stateless: the token is not revoked server-side (osTicket owns authentication); the client discards it.
+     * A password change or a lock of the agent in osTicket invalidates it before its TTL.
      */
     static function logout(Request $req) {
-        if ($req->input('all') === true) {
-            Token::revokeAll($req->staff->getId());
-            return Res::ok(['revoked' => 'all']);
-        }
-        Token::revoke($req->tokenId);
-        return Res::ok(['revoked' => 'current']);
+        return Res::ok(['logged_out' => true, 'revoked' => false]);
     }
 
     static function staffSummary(\Staff $s) {

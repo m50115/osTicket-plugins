@@ -18,7 +18,7 @@ Items are created **internal and not enabled** (status 2): no form dropdown offe
 
 - **Uniqueness** `(equipment_id, scheduled_date)` among non-cancelled records and **no lost update**: every write re-reads the plan row of its equipment, evaluates the rules (and the client's `base`) and commits with ONE compare-and-swap of that row (`DynamicListItem::objects()->filter(id, properties = what was read)->update(...)`, affected rows = 1). A lost swap re-reads and re-evaluates the same request, so concurrent writers serialize; a client whose `base` became stale gets the typed 409 as before (never a database error). A first record of a new equipment registers its plan with a compare-and-swap of the registry.
 - **Visibility:** a journal is written before the swap and is ignored until a swap references it; journals of attempts that did not commit are marked `extra='orphan'` (forensics only).
-- **Durable:** no TTL, no purge (`Store::purge` only touches the idempotency table), nothing is ever deleted by the plugin; it lives in the osTicket database, so the normal database backup includes it. Items are read **by id**: an SCP "delete" of an item (which only clears its `list_id`) or "disable" never hides a record.
+- **Durable:** no TTL, no purge (the plugin has no table to purge), nothing is ever deleted by the plugin; it lives in the osTicket database, so the normal database backup includes it. Items are read **by id**: an SCP "delete" of an item (which only clears its `list_id`) or "disable" never hides a record.
 - **Timestamps:** the database clock (`UTC_TIMESTAMP(6)`, as before), stored with microseconds, strictly increasing per record; served as ISO-8601 `Z`.
 - **Capacity:** one plan item is a MySQL `TEXT` (64 KB): about **396 records per equipment** (all states; measured in sandbox 2; the serverless harness, with longer synthetic records, fills at 375). Beyond that, creating answers `413 too_large` (`details.reason = plan_full`) and nothing is written (checked before any write). Sandbox 1 maximum today: 118 records on one equipment.
 - **Not a catalog:** `GET /lists` omits the store list and `GET /lists/{id}/items` answers 404 for it.
@@ -50,7 +50,7 @@ Unset or invalid `maintenance_list_id`, the Installed Equipment list in its plac
 | `POST /maintenances/{uuid}/link` | `anydept.ticket.create` + `ticket.view` on the target | PLANNED without a Ticket. |
 | `POST /maintenances/{uuid}/unlink` | `anydept.ticket.create` | PLANNED; no access to the Ticket needed. |
 
-Policy `maintenance.manager` (Maintenances::policy) = administrator, or **manager of ANY department** (`Dept.manager_id` = the agent; decision B of the design: with no Ticket there is no natural department). Every write needs `Idempotency-Key` (pipeline, unchanged). The batch is `anydept.ticket.create`, not manager-only: the design lets an agent "prepare the year" (§12/§13); the manager-only "batch" of the requirement is the batch *cancellation*, which is a loop of idempotent `cancel` calls (§9: no bulk endpoint).
+Policy `maintenance.manager` (Maintenances::policy) = administrator, or **manager of ANY department** (`Dept.manager_id` = the agent; decision B of the design: with no Ticket there is no natural department). `Idempotency-Key` is accepted but neither required nor stored. The batch is `anydept.ticket.create`, not manager-only: the design lets an agent "prepare the year" (§12/§13); the manager-only "batch" of the requirement is the batch *cancellation*, which is a loop of idempotent `cancel` calls (§9: no bulk endpoint).
 
 ## Record (exact keys)
 
@@ -67,7 +67,7 @@ Policy `maintenance.manager` (Maintenances::policy) = administrator, or **manage
 Body `{"items": [{"id": "<uuid>", "equipment_id": 12, "scheduled_date": "2027-03-15"}, ...]}` (1–200 items). Response `200 {data: [result per item, same order], meta: {created, exists, rejected}}`:
 
 - `{id, result: "created", maintenance}`
-- `{id, result: "exists", maintenance}`: the client id is already stored (any state; the server state is returned, nothing is compared or changed) — this is the per-item idempotency, on top of the per-request `Idempotency-Key`. An id repeated inside the same request answers `exists` the second time.
+- `{id, result: "exists", maintenance}`: the client id is already stored (any state; the server state is returned, nothing is compared or changed) — this is the per-item idempotency. There is no per-request replay (the retry of a whole batch answers `exists` per item). An id repeated inside the same request answers `exists` the second time.
 - `{id, result: "rejected", code, message, details?}` with `code` = `invalid_id`, `invalid_equipment`, `invalid_date`, `equipment_not_found` (not an item of the Installed Equipment list), `equipment_retired`, `duplicate` (`details.existing_id` = the non-cancelled holder of that equipment and date).
 
 A rejected item never fails the batch. Retired equipment is rejected only for **new** records; existing ones stay and can still be completed or cancelled. Items are evaluated in request order (sequential semantics) and each touched equipment is committed with one swap.
@@ -87,7 +87,7 @@ Convention of the plugin (Tickets): the client sends `base`, the value it saw. S
 
 "Change Ticket" = `unlink` (with reason) then `link`. Link and unlink on a COMPLETED or CANCELLED record answer 409 `invalid_state` (the design makes CANCELLED read-only and keeps the evidence Ticket of a COMPLETED one; revert first).
 
-New failure modes of the native store (closed error catalog): `413 too_large` (`plan_full`, see Capacity) and, only under sustained contention on one equipment (16 lost swaps in a row), `429 rate_limited` with `details.reason = busy` and `Retry-After: 2` (retry with the same `Idempotency-Key`; the 429 is never stored as the answer for the key, so the retry re-executes).
+New failure modes of the native store (closed error catalog): `413 too_large` (`plan_full`, see Capacity) and, only under sustained contention on one equipment (16 lost swaps in a row), `429 rate_limited` with `details.reason = busy` and `Retry-After: 2` (retry; the 429 is a retryable pacing answer).
 
 ## Migration: `POST /maintenances/import` (one shot)
 
@@ -115,4 +115,4 @@ Procedure (`prod-sandbox/m8-migrate.py`, HTTP only, never the database): `export
 ## Tested
 
 - `prod-sandbox/maintenance-unit.php` (no server): the real handler and engine against an in-memory store with the native compare-and-swap semantics — every rule of the state machine, the DTO, the feed, import parity, capacity, damage detection, and **injected concurrent writers** (same slot, other record of the same plan, same record, new-equipment registration, repeated lost swaps).
-- `prod-sandbox/e2e.py`, section «maintenances» (needs the store list prepared): uniqueness, per-item and per-request idempotency, `base` conflicts, the full state machine, permissions per role, link to an inaccessible Ticket, retired and other-list equipment, foreign `evidence_ref`, the incremental feed, **parallel requests on the real database** (8 creates of one slot, 6 reschedules of one equipment, 3 reschedules of one record), import, store shape (registry, internal items, hidden from `/lists`), the retired table untouched, durability (cron purge), no hard delete, `enable()` creates no table.
+- `prod-sandbox/e2e.py`, section «maintenances» (needs the store list prepared): uniqueness, per-item idempotency, `base` conflicts, the full state machine, permissions per role, link to an inaccessible Ticket, retired and other-list equipment, foreign `evidence_ref`, the incremental feed, **parallel requests on the real database** (8 creates of one slot, 6 reschedules of one equipment, 3 reschedules of one record), import, store shape (registry, internal items, hidden from `/lists`), the retired table untouched, durability (cron purge), no hard delete, `enable()` creates no table.

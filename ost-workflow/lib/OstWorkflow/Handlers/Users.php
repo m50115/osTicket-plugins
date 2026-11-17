@@ -6,8 +6,7 @@ use OstWorkflow\Contacts;
 use OstWorkflow\Directory;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
-use OstWorkflow\Store;
-use OstWorkflow\Throttle;
+use OstWorkflow\Db;
 use OstWorkflow\Ticketing;
 use OstWorkflow\Threading;
 
@@ -55,7 +54,6 @@ final class Users {
         $q = $req->q('q'); $email = $req->q('email');
         if ($email !== null) {
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw ApiError::validation('Invalid email address', 'email');
-            if (!Directory::full($req->staff)) Throttle::hit($req->staff, 'lookup');
             $u = \User::lookupByEmail($email);
             return Res::ok($u ? [Contacts::user($u)] : [], ['count' => $u ? 1 : 0, 'has_more' => false]);
         }

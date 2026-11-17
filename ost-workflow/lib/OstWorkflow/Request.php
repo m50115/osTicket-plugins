@@ -14,7 +14,6 @@ final class Request {
     public $staff;
     /** objects loaded by Policy (ticket, task, user, org, ...) */
     public $ctx = [];
-    public $idemKey;
     public $route = [];
     public $tokenId;
 
@@ -101,21 +100,6 @@ final class Request {
         if (!preg_match('/^-?\d+$/', (string) $v))
             throw ApiError::validation("'$key' must be an integer", $key);
         return max($min, min($max, (int) $v));
-    }
-
-    /** Stable fingerprint of the request body (idempotency body_hash). */
-    function bodyHash() {
-        if ($this->isMultipart()) {
-            $parts = [json_encode($_POST)];
-            foreach ($_FILES as $name => $f) {
-                $names = (array) ($f['name'] ?? []);
-                $tmps = (array) ($f['tmp_name'] ?? []);
-                foreach ($tmps as $i => $tmp)
-                    $parts[] = $name . ':' . ($names[$i] ?? '') . ':' . (is_file($tmp) ? hash_file('sha256', $tmp) : '');
-            }
-            return hash('sha256', implode('|', $parts));
-        }
-        return hash('sha256', $this->raw(($this->route['max_body'] ?? null)));
     }
 
     /** Flatten $_FILES[$field] (single or array style) to a list of file descriptors. */

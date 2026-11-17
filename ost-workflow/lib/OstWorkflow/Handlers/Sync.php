@@ -5,7 +5,7 @@ use OstWorkflow\ApiError;
 use OstWorkflow\Contacts;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
-use OstWorkflow\Store;
+use OstWorkflow\Db;
 use OstWorkflow\Ticketing;
 use OstWorkflow\Time;
 use OstWorkflow\Token;
@@ -49,14 +49,14 @@ final class Sync {
         if ($since) {
             $u = self::db(($since['u'] ?? null), -self::OVERLAP);
             $f = self::db(($since['f'] ?? null), -self::OVERLAP);
-            $cond = '(t.updated >= ' . Store::esc($u)
+            $cond = '(t.updated >= ' . Db::esc($u)
                 . ' OR EXISTS (SELECT 1 FROM ' . THREAD_TABLE . ' th JOIN ' . THREAD_ENTRY_TABLE . ' te ON te.thread_id=th.id WHERE th.object_id=t.ticket_id AND th.object_type=\'T\' AND te.id > ' . (int) ($since['e'] ?? 0) . ')'
                 . ' OR EXISTS (SELECT 1 FROM ' . THREAD_TABLE . ' th2 JOIN ' . THREAD_EVENT_TABLE . ' tv ON tv.thread_id=th2.id WHERE th2.object_id=t.ticket_id AND th2.object_type=\'T\' AND tv.id > ' . (int) ($since['v'] ?? 0) . ')'
-                . ' OR EXISTS (SELECT 1 FROM ' . FORM_ENTRY_TABLE . ' fe WHERE fe.object_type=\'T\' AND fe.object_id=t.ticket_id AND fe.updated >= ' . Store::esc($f) . '))';
+                . ' OR EXISTS (SELECT 1 FROM ' . FORM_ENTRY_TABLE . ' fe WHERE fe.object_type=\'T\' AND fe.object_id=t.ticket_id AND fe.updated >= ' . Db::esc($f) . '))';
         }
         $items = []; $more = false; $last = $after;
         while (count($items) < $limit) {
-            $q = Store::q('SELECT t.ticket_id FROM ' . TICKET_TABLE . ' t WHERE t.ticket_id > ' . $last . ' AND ' . $cond . ' ORDER BY t.ticket_id LIMIT 500');
+            $q = Db::q('SELECT t.ticket_id FROM ' . TICKET_TABLE . ' t WHERE t.ticket_id > ' . $last . ' AND ' . $cond . ' ORDER BY t.ticket_id LIMIT 500');
             $ids = [];
             while ($q && ($r = db_fetch_array($q))) $ids[] = (int) $r['ticket_id'];
             if (!$ids) break;
@@ -73,7 +73,7 @@ final class Sync {
             $last = $chunkLast;
         }
         if (!$more && count($items) >= $limit) {   // probe for one more
-            $more = (bool) Store::row('SELECT t.ticket_id FROM ' . TICKET_TABLE . ' t WHERE t.ticket_id > ' . $last . ' AND ' . $cond . ' LIMIT 1');
+            $more = (bool) Db::row('SELECT t.ticket_id FROM ' . TICKET_TABLE . ' t WHERE t.ticket_id > ' . $last . ' AND ' . $cond . ' LIMIT 1');
         }
 
         $out = self::components(array_keys($items));
@@ -138,18 +138,18 @@ final class Sync {
         $limit = $req->intQuery('limit', 50, 1, 200);
         $cur = self::decode($req->q('cursor'));
         $since = $cur ? $cur['since'] : ($req->q('since') !== null ? ['u' => (string) $req->q('since'), 'v' => $req->intQuery('event_since', 0, 0)] : null);
-        $hi = $cur ? $cur['hi'] : ['u' => Time::iso(time()), 'v' => (int) (Store::row('SELECT MAX(id) AS m FROM ' . THREAD_EVENT_TABLE)['m'] ?? 0)];
+        $hi = $cur ? $cur['hi'] : ['u' => Time::iso(time()), 'v' => (int) (Db::row('SELECT MAX(id) AS m FROM ' . THREAD_EVENT_TABLE)['m'] ?? 0)];
         $after = $cur ? (int) $cur['after'] : 0;
         $cond = '1=1';
         if ($since) {
-            $u = Store::esc(self::db($since['u'], -self::OVERLAP));
+            $u = Db::esc(self::db($since['u'], -self::OVERLAP));
             $cond = '(k.updated >= ' . $u . ' OR k.closed >= ' . $u . ' OR EXISTS (SELECT 1 FROM ' . THREAD_TABLE . ' th JOIN ' . THREAD_EVENT_TABLE
                 . ' tv ON tv.thread_id=th.id WHERE th.object_id=k.id AND th.object_type=\'A\' AND tv.id > ' . (int) ($since['v'] ?? 0) . '))';
         }
         $s = $req->staff; $vis = ['k.staff_id=' . (int) $s->getId()];
         if ($s->getDepts()) $vis[] = 'k.dept_id IN (' . implode(',', array_map('intval', $s->getDepts())) . ')';
         if ($s->getTeams()) $vis[] = 'k.team_id IN (' . implode(',', array_map('intval', $s->getTeams())) . ')';
-        $q = Store::q('SELECT k.id FROM ' . TASK_TABLE . ' k WHERE k.id > ' . $after . ' AND ' . $cond . ' AND (' . implode(' OR ', $vis) . ') ORDER BY k.id LIMIT ' . ($limit + 1));
+        $q = Db::q('SELECT k.id FROM ' . TASK_TABLE . ' k WHERE k.id > ' . $after . ' AND ' . $cond . ' AND (' . implode(' OR ', $vis) . ') ORDER BY k.id LIMIT ' . ($limit + 1));
         $ids = [];
         while ($q && ($r = db_fetch_array($q))) $ids[] = (int) $r['id'];
         $more = count($ids) > $limit;
@@ -171,11 +171,11 @@ final class Sync {
         if ($since !== null) {
             $db = self::db($since, -self::OVERLAP);
             if (!$db) throw ApiError::validation("'since' must be ISO-8601", 'since');
-            $cond = 'updated >= ' . Store::esc($db);
+            $cond = 'updated >= ' . Db::esc($db);
         }
         $lastU = $cur ? $cur['lu'] : ''; $lastId = $cur ? (int) $cur['li'] : 0;
-        $where = $cond . ($cur ? ' AND (updated > ' . Store::esc($lastU) . ' OR (updated = ' . Store::esc($lastU) . ' AND ' . $idCol . ' > ' . $lastId . '))' : '');
-        $q = Store::q('SELECT ' . $idCol . ' AS id, updated FROM ' . $table . ' WHERE ' . $where . ' ORDER BY updated, ' . $idCol . ' LIMIT ' . ($limit + 1));
+        $where = $cond . ($cur ? ' AND (updated > ' . Db::esc($lastU) . ' OR (updated = ' . Db::esc($lastU) . ' AND ' . $idCol . ' > ' . $lastId . '))' : '');
+        $q = Db::q('SELECT ' . $idCol . ' AS id, updated FROM ' . $table . ' WHERE ' . $where . ' ORDER BY updated, ' . $idCol . ' LIMIT ' . ($limit + 1));
         $rows = [];
         while ($q && ($r = db_fetch_array($q))) $rows[] = $r;
         $more = count($rows) > $limit;
@@ -192,9 +192,9 @@ final class Sync {
 
     /** Component maxima at the start of a pass (per-ticket components are read live). */
     private static function watermarkTickets() {
-        $e = Store::row('SELECT MAX(id) AS m FROM ' . THREAD_ENTRY_TABLE);
-        $v = Store::row('SELECT MAX(id) AS m FROM ' . THREAD_EVENT_TABLE);
-        $f = Store::row('SELECT MAX(updated) AS m FROM ' . FORM_ENTRY_TABLE . ' WHERE object_type=\'T\'');
+        $e = Db::row('SELECT MAX(id) AS m FROM ' . THREAD_ENTRY_TABLE);
+        $v = Db::row('SELECT MAX(id) AS m FROM ' . THREAD_EVENT_TABLE);
+        $f = Db::row('SELECT MAX(updated) AS m FROM ' . FORM_ENTRY_TABLE . ' WHERE object_type=\'T\'');
         return ['u' => Time::iso(time()), 'e' => (int) ($e['m'] ?? 0), 'v' => (int) ($v['m'] ?? 0), 'f' => Time::iso($f['m'] ?? null) ?: Time::iso(time())];
     }
 
@@ -203,13 +203,13 @@ final class Sync {
         $out = [];
         if (!$ids) return $out;
         $in = implode(',', array_map('intval', $ids));
-        $q = Store::q('SELECT th.object_id AS tid, MAX(te.id) AS m FROM ' . THREAD_TABLE . ' th JOIN ' . THREAD_ENTRY_TABLE . ' te ON te.thread_id=th.id'
+        $q = Db::q('SELECT th.object_id AS tid, MAX(te.id) AS m FROM ' . THREAD_TABLE . ' th JOIN ' . THREAD_ENTRY_TABLE . ' te ON te.thread_id=th.id'
             . ' WHERE th.object_type=\'T\' AND th.object_id IN (' . $in . ') GROUP BY th.object_id');
         while ($q && ($r = db_fetch_array($q))) $out[(int) $r['tid']]['entry'] = (int) $r['m'];
-        $q = Store::q('SELECT th.object_id AS tid, MAX(tv.id) AS m FROM ' . THREAD_TABLE . ' th JOIN ' . THREAD_EVENT_TABLE . ' tv ON tv.thread_id=th.id'
+        $q = Db::q('SELECT th.object_id AS tid, MAX(tv.id) AS m FROM ' . THREAD_TABLE . ' th JOIN ' . THREAD_EVENT_TABLE . ' tv ON tv.thread_id=th.id'
             . ' WHERE th.object_type=\'T\' AND th.object_id IN (' . $in . ') GROUP BY th.object_id');
         while ($q && ($r = db_fetch_array($q))) $out[(int) $r['tid']]['event'] = (int) $r['m'];
-        $q = Store::q('SELECT object_id AS tid, MAX(updated) AS m FROM ' . FORM_ENTRY_TABLE . ' WHERE object_type=\'T\' AND object_id IN (' . $in . ') GROUP BY object_id');
+        $q = Db::q('SELECT object_id AS tid, MAX(updated) AS m FROM ' . FORM_ENTRY_TABLE . ' WHERE object_type=\'T\' AND object_id IN (' . $in . ') GROUP BY object_id');
         while ($q && ($r = db_fetch_array($q))) $out[(int) $r['tid']]['form'] = $r['m'];
         foreach ($ids as $id) $out[$id] += ['entry' => 0, 'event' => 0, 'form' => null];
         foreach ($out as $id => $c) $out[$id] += ['entry' => 0, 'event' => 0, 'form' => null];

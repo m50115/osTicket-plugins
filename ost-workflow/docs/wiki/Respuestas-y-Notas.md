@@ -20,7 +20,7 @@ Los mensajes que escribe el cliente tampoco se pueden editar por la API.
 
 ## Editar notas internas
 
-`PATCH /tickets/{id}/notes/{entry}` y `PATCH /tasks/{id}/notes/{entry}` (mismas reglas). Como toda escritura, exigen `Idempotency-Key`.
+`PATCH /tickets/{id}/notes/{entry}` y `PATCH /tasks/{id}/notes/{entry}` (mismas reglas). `Idempotency-Key` se acepta pero no se exige.
 
 ### Cuándo se puede y quién puede
 - Solo si la entrada es una **nota interna**. Una respuesta pública o un mensaje del cliente devuelve `422 validation_failed` con `details.reason: "not_editable_type"`; una entrada del sistema, `422` con `details.reason: "system_entry"`; una entrada de otro hilo, `404`.
@@ -63,7 +63,7 @@ flowchart LR
 Los adjuntos **no incrustados** de la versión anterior pasan a la nueva; los incrustados en el texto se quedan en la versión oculta. Los `file_ids` enviados se añaden a la nueva versión. Solo se puede referenciar archivos subidos por el mismo agente.
 
 ### Idempotencia
-La misma `Idempotency-Key` con la misma petición devuelve la respuesta guardada (`Idempotent-Replayed: true`) y no crea otra versión. El mecanismo es el genérico del plugin para toda escritura.
+No hay registro de repetición: el cliente concilia con la base (`PATCH` con el `entry` visto devuelve `409 conflict` si ya hubo otra versión).
 
 ### Correo
 Editar una nota **no envía correo**.
@@ -85,7 +85,7 @@ Verificado por ejecución = una comprobación ejecutable del repositorio (`prod-
 | El autor edita la suya; un administrador edita la de otro agente | implementado; sin comprobación ejecutable |
 | Autor original conservado | implementado; sin comprobación ejecutable |
 | Adjuntos conservados y adjuntos nuevos | implementado; sin comprobación ejecutable |
-| Misma `Idempotency-Key` → una versión | implementado (mecanismo genérico); sin comprobación ejecutable para esta ruta |
+| Reintento → una versión | por conciliación del cliente (`base`); no hay registro de repetición |
 | Ningún correo al editar | implementado (el código no invoca el envío); sin comprobación ejecutable |
 
 Las filas «sin comprobación ejecutable» pueden haberse observado a mano en el sandbox, pero no hay un script en el repositorio que las reproduzca.

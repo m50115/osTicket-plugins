@@ -37,7 +37,7 @@
    "impact": "SECURITY_SENSITIVE",
    "reversible": "n/a",
    "necessity": "REQUIRED_BY_CORE_WORKFLOW",
-   "abuse": "Revokes only the caller's own token(s); \"all\" ends the caller's own sessions.",
+   "abuse": "Stateless: returns 200 and the client discards the token; a still-valid token is not revoked before its TTL (a password change or lock in osTicket invalidates it).",
    "recommendation": "KEEP"
   },
   "GET /auth/verify": {

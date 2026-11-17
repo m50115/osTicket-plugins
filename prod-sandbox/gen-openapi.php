@@ -2,16 +2,24 @@
 /**
  * Generates ost-workflow/docs/openapi.json from the REAL route table (Router::table()).
  *   php gen-openapi.php <osticket app dir> > ../ost-workflow/docs/openapi.json
- * Paths, methods, path parameters, security, the Idempotency-Key requirement on writes, the standard error
+ *   OW_SRC=<ost-workflow dir> php gen-openapi.php > ../ost-workflow/docs/openapi.json   (no osTicket: routes are static data)
+ * Paths, methods, path parameters, security, the (optional, ignored) Idempotency-Key header on writes, the standard error
  * responses and `x-policy` (the permission the plugin enforces). Request/response body schemas are described in
  * docs/endpoints/*.md; the generated document is the machine-readable route contract for client generators.
  */
-$app = $argv[1] ?? (getenv('HOME') . '/development/ost-sandbox/app');
-chdir($app . '/api');
-$_SERVER['REQUEST_METHOD'] = 'GET'; $_SERVER['SERVER_NAME'] = '127.0.0.1'; $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; $_SERVER['HTTP_HOST'] = '127.0.0.1'; $_SERVER['SCRIPT_NAME'] = '/api/http.php';
-ob_start();
-require $app . '/api/api.inc.php';
-ob_end_clean();
+if (getenv('OW_SRC')) {
+    $src = rtrim(getenv('OW_SRC'), '/') . '/lib/';
+    spl_autoload_register(function ($c) use ($src) {
+        if (strpos($c, 'OstWorkflow\\') === 0 && is_file($f = $src . str_replace('\\', '/', $c) . '.php')) require $f;
+    });
+} else {
+    $app = $argv[1] ?? (getenv('HOME') . '/development/ost-sandbox/app');
+    chdir($app . '/api');
+    $_SERVER['REQUEST_METHOD'] = 'GET'; $_SERVER['SERVER_NAME'] = '127.0.0.1'; $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; $_SERVER['HTTP_HOST'] = '127.0.0.1'; $_SERVER['SCRIPT_NAME'] = '/api/http.php';
+    ob_start();
+    require $app . '/api/api.inc.php';
+    ob_end_clean();
+}
 
 $ver = \OstWorkflow\Build::VERSION;
 $errors = array_keys(\OstWorkflow\ApiError::CATALOG);
@@ -29,10 +37,10 @@ foreach (\OstWorkflow\Router::table() as $r) {
         'responses' => ['200' => ['description' => 'Success: {"data": …, "meta": …}'], 'default' => $err],
     ];
     if (!$r['auth']) $op['security'] = [];
-    $write = $r['method'] !== 'GET' && $r['auth'] && $r['idem'] !== false;
+    $write = $r['method'] !== 'GET' && $r['auth'] && $r['action'] !== 'logout';
     if ($write) {
-        $op['parameters'][] = ['name' => 'Idempotency-Key', 'in' => 'header', 'required' => true, 'schema' => ['type' => 'string', 'pattern' => '^[A-Za-z0-9-]{8,64}$'],
-                               'description' => 'One per operation; a retry with the same key never repeats the effect.'];
+        $op['parameters'][] = ['name' => 'Idempotency-Key', 'in' => 'header', 'required' => false, 'deprecated' => true, 'schema' => ['type' => 'string', 'pattern' => '^[A-Za-z0-9-]{8,64}$'],
+                               'description' => 'Accepted for compatibility, never required, never stored: the server keeps no replay ledger. A client that retries reconciles against the official state (GET /tickets, GET /match/ticket, the resource itself).'];
         $op['responses']['201'] = ['description' => 'Created'];
     }
     if (in_array($r['method'], ['POST', 'PUT', 'PATCH', 'DELETE'], true))

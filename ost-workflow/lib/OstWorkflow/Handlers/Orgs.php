@@ -6,7 +6,7 @@ use OstWorkflow\Contacts;
 use OstWorkflow\Directory;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
-use OstWorkflow\Store;
+use OstWorkflow\Db;
 use OstWorkflow\Threading;
 use OstWorkflow\Ticketing;
 
@@ -202,7 +202,7 @@ final class Orgs {
         $o = $req->ctx['org'];
         $b = $req->json();
         if (!isset($b['base_hash']) || !is_string($b['base_hash'])) throw ApiError::validation("'base_hash' is required", 'base_hash');
-        $row = Store::row('SELECT extra FROM ' . ORGANIZATION_TABLE . ' WHERE id=' . (int) $o->getId());
+        $row = Db::row('SELECT extra FROM ' . ORGANIZATION_TABLE . ' WHERE id=' . (int) $o->getId());
         $raw = $row['extra'];
         $text = (string) $raw;
         if (isset($b['text'])) {
@@ -216,9 +216,9 @@ final class Orgs {
             throw new ApiError('conflict', 'extra changed on the server since you read it', null,
                 ['current_hash' => hash('sha256', $text), 'current' => $raw]);
         // Real CAS: the UPDATE only matches while the stored text is still the one we read.
-        Store::q('UPDATE ' . ORGANIZATION_TABLE . ' SET extra=' . Store::esc($new) . ', updated=NOW() WHERE id=' . (int) $o->getId()
-            . ' AND (extra <=> ' . ($raw === null ? 'NULL' : Store::esc($raw)) . ')');
-        if (Store::affected() !== 1)
+        Db::q('UPDATE ' . ORGANIZATION_TABLE . ' SET extra=' . Db::esc($new) . ', updated=NOW() WHERE id=' . (int) $o->getId()
+            . ' AND (extra <=> ' . ($raw === null ? 'NULL' : Db::esc($raw)) . ')');
+        if (Db::affected() !== 1)
             throw new ApiError('conflict', 'extra changed while saving; re-read and retry', null, ['reason' => 'cas_lost']);
         return Res::ok(['applied' => true, 'extra' => $new, 'extra_hash' => hash('sha256', $new)]);
     }

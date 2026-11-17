@@ -56,7 +56,7 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | Endpoint | R/W | Permiso | Consumidor | Categoría | Impacto | Reversible | Necesidad | Riesgo de abuso | Recomendación |
 |---|---|---|---|---|---|---|---|---|---|
 | `POST /auth/login` | W | `auth` | core | FIELD_OPERATION | SECURITY_SENSITIVE | yes (token revocable) | REQUIRED_BY_CORE_WORKFLOW | Credential stuffing: 5 failures per user+real IP lock 30 min; generic 401; token signed with its own secret. Agents with a second factor in osTicket are refused (403 two_factor_required) before any backend runs: no token, no OTP e-mail (MSOLIS A1, 2026-09-28). | KEEP |
-| `POST /auth/logout` | W | `auth` | core | FIELD_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_CORE_WORKFLOW | Revokes only the caller's own token(s); "all" ends the caller's own sessions. | KEEP |
+| `POST /auth/logout` | W | `auth` | core | FIELD_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_CORE_WORKFLOW | Stateless: returns 200 and the client discards the token; a still-valid token is not revoked before its TTL (a password change or lock in osTicket invalidates it). | KEEP |
 | `GET /auth/verify` | R | `auth` | core | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_CORE_WORKFLOW | Own profile/permissions only (signature is readable, no longer writable). | KEEP |
 | `GET /canned` | R | `auth` | tickets (templates) | FIELD_OPERATION | READ_ONLY | n/a | USEFUL_BUT_NOT_REQUIRED | Templates per department visibility; render has no external effect. | KEEP |
 | `GET /canned/{id}/render` | R | `canned.render` | tickets (templates) | FIELD_OPERATION | READ_ONLY | n/a | USEFUL_BUT_NOT_REQUIRED | Templates per department visibility; render has no external effect. | KEEP |

@@ -1,6 +1,6 @@
 # Tickets — `/workflow/v1`
 
-Handler `lib/OstWorkflow/Handlers/Tickets.php`; helper `Ticketing.php`. Common rules (envelope, UTC, Bearer, `Idempotency-Key` on writes, `$thisstaff`) are in [README](../../README.md). Core references are osTicket 1.17.2.
+Handler `lib/OstWorkflow/Handlers/Tickets.php`; helper `Ticketing.php`. Common rules (envelope, UTC, Bearer, `Idempotency-Key` accepted but neither required nor stored, `$thisstaff`) are in [README](../../README.md). Core references are osTicket 1.17.2.
 
 **SLA, due dates and overdue (osTicket semantics, checked in the sandbox).** Overdue is a flag set by the core cron on open tickets past their due date; it is **not** a status and changing the status does not clear it. It clears when a new due date or SLA is applied, or when the ticket is closed. A manual `duedate` (future) overrides the SLA due date and is the way to extend the deadline; `null` falls back to the SLA. The SLA due date is computed from the creation date, or from the last reopening: closing and reopening restarts the count.
 
@@ -11,7 +11,7 @@ Handler `lib/OstWorkflow/Handlers/Tickets.php`; helper `Ticketing.php`. Common r
 ## DTOs
 `summary`: `id, number, subject, status{id,name,state}, dept, topic, priority{id,name,urgency}, sla, owner{id,name,email,org_id}, assignee{type,id,name,token}|null, source, is_overdue, is_answered, created, updated, last_activity, closed, due{manual,sla,effective}, activity{}`.
 `activity` (computed for the whole page in a few queries, never from `ticket.updated`): `last_activity_at` (max of the latest visible entry and the latest non-`viewed` event; `last_activity` is the same value), `last_message_at`, `last_response_at`, `max_entry_id`, `max_event_id` (the sync components) and `last_entry{id, type, kind, audience, actor{type,id,name}, excerpt (≤140 chars, plain text), has_files, created}` — enough for an inbox row without opening the thread.
-`detail` = summary + `allowed_actions[]` (names the caller may do now), `visible_to_caller`, owner `phone`/`org`, `reopened`, `ip_address`, `collaborators_count`, `tasks_count`, `open_tasks_count`, `messages_count`, `is_closeable`, `source_extra` (idempotency marker `wf:<key>`), `lock{locked, staff_id, staff_name, expires_at}` (read-only; the plugin never acquires the desktop lock, P-16).
+`detail` = summary + `allowed_actions[]` (names the caller may do now), `visible_to_caller`, owner `phone`/`org`, `reopened`, `ip_address`, `collaborators_count`, `tasks_count`, `open_tasks_count`, `messages_count`, `is_closeable`, `source_extra` (the core's own field; no `wf:` marker is written any more), `lock{locked, staff_id, staff_name, expires_at}` (read-only; the plugin never acquires the desktop lock, P-16).
 `due.manual` = `ticket.duedate`, `due.sla` = SLA estimate, `due.effective` = manual ?: sla (legacy B-8). All timestamps UTC ISO-8601 (`Time::iso`, calibrated against MySQL's clock).
 
 ## Reads (policy noted)
@@ -58,7 +58,7 @@ Replies, notes, activity and files are in [threads-files](threads-files.md); tas
 merge/link, delete, lock acquisition, `PUT /tickets/{id}` (bulk edit collides with per-field base values).
 
 ## Errors
-`validation_failed` (`field`), `forbidden` (missing `ticket.*` permission — names the permission), `not_found`, `conflict` (base mismatch; closed ticket without `reopen`; unclaimable), `not_closeable`, `idempotency_key_required`, `idempotency_key_reused`, `in_progress`, `needs_review`.
+`validation_failed` (`field`), `forbidden` (missing `ticket.*` permission — names the permission), `not_found`, `conflict` (base mismatch; closed ticket without `reopen`; unclaimable), `not_closeable`.
 
 ## Verified (sandbox, PHP 8.0.30 + opcache + nginx)
-List/cursor/filters/search, detail, create + replay (0 duplicates, marker set), claim/assign/release/transfer/refer, field updates (DB checked), owner, answered, collaborators, close/noop/conflict, closed→assign needs `reopen`, `agent2` (Limited Access) gets 403 on close/edit. Dynamic fields (text/bool/number/choice), the batch (all-or-nothing validation, aggregated conflicts, `agent2` 403) checked against the DB. Found and fixed: the visibility filter duplicated tickets (join through referrals) → DISTINCT.
+List/cursor/filters/search, detail, create, claim/assign/release/transfer/refer, field updates (DB checked), owner, answered, collaborators, close/noop/conflict, closed→assign needs `reopen`, `agent2` (Limited Access) gets 403 on close/edit. Dynamic fields (text/bool/number/choice), the batch (all-or-nothing validation, aggregated conflicts, `agent2` 403) checked against the DB. Found and fixed: the visibility filter duplicated tickets (join through referrals) → DISTINCT.

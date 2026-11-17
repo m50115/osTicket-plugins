@@ -3,16 +3,15 @@ namespace OstWorkflow\Handlers;
 
 use OstWorkflow\ApiError;
 use OstWorkflow\Attachments;
-use OstWorkflow\RateLimit;
+use OstWorkflow\ClientIp;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Threading;
-use OstWorkflow\Throttle;
 
 /**
  * Ticket thread: composite activity feed (entries + events), public replies,
  * internal notes and late attachments on a note.
- * Every write runs through Pipeline (auth -> $thisstaff -> idempotency -> Policy).
+ * Every write runs through Pipeline (auth -> $thisstaff -> Policy).
  */
 final class Threads {
     static function routes() {
@@ -126,7 +125,6 @@ final class Threads {
         $signature = $req->input('signature', 'none');
         if (!in_array($signature, ['none', 'mine', 'dept'], true))
             throw ApiError::validation("'signature' must be none, mine or dept", 'signature');
-        if ($notify !== 'none') Throttle::hit($staff, 'mail');   // customer e-mail is the outward effect a stolen token could abuse
         $files = Attachments::resolve($req->input('file_ids'), $staff);
         Attachments::assertText(Threading::plainBody($req), $files);
         $statusId = $req->input('status_id') !== null
@@ -152,7 +150,7 @@ final class Threads {
             'ccs'        => $cc ?? [],
             'files'      => Attachments::forCreate($files, $staff),
             'signature'  => $signature,
-            'ip_address' => RateLimit::ip($req),
+            'ip_address' => ClientIp::ip($req),
         ];
         if ($statusId !== null)
             $vars['reply_status_id'] = $statusId;
@@ -182,13 +180,14 @@ final class Threads {
         $ticket = $req->ctx['ticket'];
         $staff = $req->staff;
 
-        // A document note declares its identity; a retry the idempotency record cannot answer adopts the existing note.
+        // A document note declares its identity; a retry of the same (uuid, version) on this ticket finds the existing note
+        // (read from the thread through the ORM; there is no index).
         $doc = \OstWorkflow\Documents::fromRequest($req);
         if ($doc && ($ex = \OstWorkflow\Documents::check($doc, $ticket)))
             return Res::ok(['applied' => false, 'adopted' => true, 'document' => $doc, 'entry' => Threading::entry(\ThreadEntry::lookup($ex['entry_id']))]);
 
         $chars = Threading::charsIn($req);
-        $body = Threading::bodyFromRequest($req);
+        $body = Threading::bodyFromRequest($req, 'body', $doc ? \OstWorkflow\Documents::marker($doc) : '');
         $title = Threading::title($req);
         $alert = Threading::boolInput($req, 'alert', false);
         $files = Attachments::resolve($req->input('file_ids'), $staff);
@@ -201,7 +200,7 @@ final class Threads {
             'title'      => $title,
             'staffId'    => $staff->getId(),
             'files'      => Attachments::forCreate($files, $staff),
-            'ip_address' => RateLimit::ip($req),
+            'ip_address' => ClientIp::ip($req),
         ];
         if ($statusId !== null)
             $vars['note_status_id'] = $statusId;
@@ -216,7 +215,6 @@ final class Threads {
         $effects = Threading::effects($before, Threading::snapshot($ticket));
         $effects['alert'] = $alert;
         $effects['sanitized'] = Threading::sanitized($chars, $entry->getBody());
-        if ($doc) \OstWorkflow\Documents::record($doc, $ticket, $entry);
         return Res::created(['entry' => Threading::entry($entry), 'effects' => $effects] + ($doc ? ['document' => $doc] : []));
     }
 

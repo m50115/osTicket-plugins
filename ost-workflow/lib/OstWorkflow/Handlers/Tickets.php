@@ -2,11 +2,10 @@
 namespace OstWorkflow\Handlers;
 
 use OstWorkflow\ApiError;
-use OstWorkflow\Idempotency;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Runtime;
-use OstWorkflow\Store;
+use OstWorkflow\Db;
 use OstWorkflow\Threading;
 use OstWorkflow\Ticketing;
 use OstWorkflow\Time;
@@ -229,7 +228,6 @@ final class Tickets {
             if ($v !== '0' && $v !== '1') throw ApiError::validation("'$k' must be 0 or 1", $k);
             $flags[$k] = $v === '1';
         }
-        \OstWorkflow\Throttle::hit($req->staff, 'pdf');   // rendering is CPU/memory heavy: bounded per agent
         require_once(INCLUDE_DIR . 'class.pdf.php');
         if (!class_exists('Ticket2PDF'))
             throw new ApiError('not_configured', 'PDF export is not available on this installation (mPDF missing)');
@@ -406,7 +404,7 @@ final class Tickets {
 
     /**
      * POST /tickets — Ticket::create as staff. Explicit topic (or PluginConfig default, else 422),
-     * explicit notification flag, contact by user_id or email+name, marker source_extra=wf:<key>.
+     * explicit notification flag, contact by user_id or email+name.
      */
     static function create(Request $req) {
         require_once(INCLUDE_DIR . 'class.ticket.php');
@@ -494,15 +492,11 @@ final class Tickets {
             }
         }
 
-        if ($notify) \OstWorkflow\Throttle::hit($staff, 'mail');
         $errors = [];
         $ticket = \Ticket::create($vars, $errors, 'staff', $notify, $notify);
         if (!$ticket)
             throw ApiError::fromErrors($errors ?: [], 'Could not create the ticket');
 
-        // Durable marker: lets a retry after a crash adopt this ticket instead of duplicating (§I).
-        Store::q('UPDATE ' . TICKET_TABLE . ' SET source_extra=' . Store::esc(Idempotency::marker($req->idemKey))
-            . ' WHERE ticket_id=' . (int) $ticket->getId());
         return Res::created(Ticketing::detail(\Ticket::lookup((int) $ticket->getId()), $staff));
     }
 
@@ -931,7 +925,7 @@ final class Tickets {
 
     /** Wall-clock "now" of the database, the clock the core cron compares est_duedate against. */
     private static function dbNow() {
-        return Store::row('SELECT NOW() AS n')['n'];
+        return Db::row('SELECT NOW() AS n')['n'];
     }
 
     /** now + the plan's grace period, respecting the department's business hours (the core's own computation). */

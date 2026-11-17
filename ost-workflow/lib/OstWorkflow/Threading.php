@@ -21,7 +21,7 @@ final class Threading {
      * Build a ThreadEntryBody from request input. `body` is required;
      * `body_format` is 'text' (default; escaped, newlines kept) or 'html' (sanitized by osTicket).
      */
-    static function bodyFromRequest(Request $req, $field = 'body') {
+    static function bodyFromRequest(Request $req, $field = 'body', $suffixHtml = '') {
         $raw = $req->input($field);
         if (!is_string($raw) || trim($raw) === '')
             throw ApiError::validation("'$field' is required", $field);
@@ -40,6 +40,9 @@ final class Threading {
         } else {
             $raw = self::protectLt($raw);
         }
+        // Document marker line (Documents::marker), appended once; not counted in the length/inline checks above.
+        if ($suffixHtml !== '' && strpos($raw, trim(strip_tags($suffixHtml))) === false)
+            $raw .= $suffixHtml;
         return new \HtmlThreadEntryBody($raw);
     }
 
@@ -176,7 +179,7 @@ final class Threading {
     /** True when the thread body column is utf8mb3: emoji and other characters above U+FFFF are silently dropped. */
     static function dbDropsSupplementary() {
         if (self::$dropsSupplementary === null) {
-            $r = Store::row('SHOW FULL COLUMNS FROM ' . THREAD_ENTRY_TABLE . ' LIKE \'body\'');
+            $r = Db::row('SHOW FULL COLUMNS FROM ' . THREAD_ENTRY_TABLE . ' LIKE \'body\'');
             self::$dropsSupplementary = !$r || stripos((string) ($r['Collation'] ?? 'utf8mb3'), 'utf8mb4') !== 0;
         }
         return self::$dropsSupplementary;
@@ -250,7 +253,7 @@ final class Threading {
         if ($old->flags & \ThreadEntry::FLAG_HIDDEN) {
             $cur = (int) $old->id;
             for ($i = 0; $i < 50; $i++) {
-                $r = Store::row('SELECT id FROM ' . THREAD_ENTRY_TABLE . ' WHERE pid=' . $cur . ' AND thread_id=' . (int) $threadId
+                $r = Db::row('SELECT id FROM ' . THREAD_ENTRY_TABLE . ' WHERE pid=' . $cur . ' AND thread_id=' . (int) $threadId
                     . ' AND (flags & ' . \ThreadEntry::FLAG_EDITED . ') <> 0 ORDER BY id DESC LIMIT 1');
                 if (!$r) break;
                 $cur = (int) $r['id'];
@@ -259,7 +262,9 @@ final class Threading {
                 ['current_entry_id' => $cur !== (int) $old->id ? $cur : null, 'base_entry_id' => (int) $old->id]);
         }
 
-        $new = self::bodyFromRequest($req);
+        // An edited document note keeps its identity: the marker line is carried over to the new version.
+        $mk = Documents::ofBody((string) $old->getBody());
+        $new = self::bodyFromRequest($req, 'body', $mk ? Documents::marker($mk) : '');
         $files = Attachments::resolve($req->input('file_ids'), $staff);
         Attachments::assertText(self::plainBody($req), $files, $old);
         $title = $req->input('title');
@@ -279,7 +284,7 @@ final class Threading {
             'pid'        => $old->id,
             'title'      => \Format::htmlchars($title),
             'body'       => $new,
-            'ip_address' => RateLimit::ip($req),
+            'ip_address' => ClientIp::ip($req),
         ]);
         if (!$entry)
             throw new ApiError('internal_error', 'The edited note could not be created');
@@ -352,7 +357,7 @@ final class Threading {
 
     /** Ticket columns that a write may change as a side effect. */
     static function snapshot(\Ticket $t) {
-        $r = Store::row('SELECT status_id, staff_id, team_id, dept_id, isanswered FROM ' . TICKET_TABLE
+        $r = Db::row('SELECT status_id, staff_id, team_id, dept_id, isanswered FROM ' . TICKET_TABLE
             . ' WHERE ticket_id=' . (int) $t->getId());
         return $r ?: [];
     }

@@ -23,7 +23,7 @@ Las contraseñas de los agentes las **genera** `create-agent.php` (aleatorias, 2
 | `agent2` | rol **3 «Limited Access»**, departamento primario **1 (Support)**, sin acceso extendido, no administrador | permisos negativos: tickets/tareas/archivos de otro departamento (incl. tareas **cerradas**), directorio, presupuestos |
 | `agent3` | rol **2 «Expanded Access»**, departamento primario **1**, **no gerente** del departamento | PC-S2 (`disable`/`clear_overdue` del SLA solo gerente o administrador) |
 | `agent2fa` | rol **3**, departamento **1**, con el **segundo factor por e-mail** de osTicket (`--2fa=email`) | 2FA A1: su login por la API debe ser `403 two_factor_required` |
-| acceso a BD (`sql.sh`) | usuario `ost` del MySQL del sandbox (puerto 3307) | recuperación tras un corte de idempotencia, presupuestos por hora, comprobaciones de gerente |
+| acceso a BD (`sql.sh`) | usuario `ost` del MySQL del sandbox (puerto 3307) | comprobaciones de gerente y de contenido |
 | Mailpit (`127.0.0.1:8025`) | opcional | «correo por defecto apagado» (sin él, esa sección se omite) |
 
 Datos base del sandbox que la suite da por hechos: departamentos 1 Support, 2 Sales y 3 Maintenance; tema 1; SLA y prioridades por defecto. El instalador del sandbox los crea.

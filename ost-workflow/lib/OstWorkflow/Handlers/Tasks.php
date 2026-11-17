@@ -4,10 +4,10 @@ namespace OstWorkflow\Handlers;
 use OstWorkflow\ApiError;
 use OstWorkflow\Attachments;
 use OstWorkflow\Contacts;
-use OstWorkflow\RateLimit;
+use OstWorkflow\ClientIp;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
-use OstWorkflow\Store;
+use OstWorkflow\Db;
 use OstWorkflow\Threading;
 use OstWorkflow\Ticketing;
 use OstWorkflow\Time;
@@ -180,7 +180,7 @@ final class Tasks {
             $vars['description'] = $form->getField('description')->getClean();
             $vars['staffId'] = $req->staff->getId();
             $vars['poster'] = $req->staff;
-            $vars['ip_address'] = RateLimit::ip($req);
+            $vars['ip_address'] = ClientIp::ip($req);
             $e = [];
             return [\Task::create($vars, $e), $e];
         });
@@ -196,7 +196,7 @@ final class Tasks {
         $files = Attachments::resolve($req->input('file_ids'), $req->staff);
         Attachments::assertText(Threading::plainBody($req), $files);
         $vars = ['note' => $body, 'title' => Threading::title($req), 'staffId' => $req->staff->getId(),
-                 'files' => Attachments::forCreate($files, $req->staff), 'ip_address' => RateLimit::ip($req)];
+                 'files' => Attachments::forCreate($files, $req->staff), 'ip_address' => ClientIp::ip($req)];
         $errors = [];
         $entry = $task->postNote($vars, $errors, $req->staff, Threading::boolInput($req, 'alert', false));
         if (!$entry) throw ApiError::fromErrors($errors, 'The note could not be posted');
@@ -221,7 +221,7 @@ final class Tasks {
         $files = Attachments::resolve($req->input('file_ids'), $req->staff);
         Attachments::assertText(Threading::plainBody($req), $files);
         $vars = ['response' => $body, 'staffId' => $req->staff->getId(), 'poster' => $req->staff,
-                 'files' => Attachments::forCreate($files, $req->staff), 'ip_address' => RateLimit::ip($req)];
+                 'files' => Attachments::forCreate($files, $req->staff), 'ip_address' => ClientIp::ip($req)];
         $errors = [];
         $entry = $task->postReply($vars, $errors, Threading::boolInput($req, 'alert', false));
         if (!$entry) throw ApiError::fromErrors($errors, 'The reply could not be posted');
@@ -313,7 +313,7 @@ final class Tasks {
             if (!array_key_exists($key, $b['base'])) throw ApiError::validation("'base.$key' is required", "base.$key");
             $base = $b['base'][$key];
             if ($key === 'due_at') {
-                $cur = Time::iso(Store::row('SELECT duedate FROM ' . TASK_TABLE . ' WHERE id=' . (int) $t->getId())['duedate'] ?? null);
+                $cur = Time::iso(Db::row('SELECT duedate FROM ' . TASK_TABLE . ' WHERE id=' . (int) $t->getId())['duedate'] ?? null);
                 $desired = $value === null ? null : Time::iso(Time::toDb((string) $value));
                 if ($value !== null && !$desired) throw ApiError::validation('Invalid ISO-8601 date', 'due_at');
                 $bs = $base === null ? null : Time::iso(Time::toDb((string) $base));
@@ -382,7 +382,7 @@ final class Tasks {
     // ------------------------------------------------------------------
 
     static function dto(\Task $t, $detail = false) {
-        $r = Store::row('SELECT created, updated, closed, duedate, flags FROM ' . TASK_TABLE . ' WHERE id=' . (int) $t->getId()) ?: [];
+        $r = Db::row('SELECT created, updated, closed, duedate, flags FROM ' . TASK_TABLE . ' WHERE id=' . (int) $t->getId()) ?: [];
         $dept = $t->getDept();
         $a = null;
         if ($t->isOpen() && $t->getStaffId() && ($s = $t->getStaff()))

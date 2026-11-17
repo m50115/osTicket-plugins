@@ -26,10 +26,10 @@ Handlers `Users.php`, `Orgs.php`, `Matching.php`; helper `Contacts.php`. Base-va
 | `GET/POST /organizations/{id}/notes` | quick notes. |
 
 ## Reconciliation (`GET`, policy `auth`) — Architecture §L
-Classification is `safe` (the server vouches: same email, server id, marker, server number), `candidate` (one plausible match) or `ambiguous` (several → a person decides), else `none`. No fuzzy matching.
+Classification is `safe` (the server vouches: same email, server id, server number), `candidate` (one plausible match) or `ambiguous` (several → a person decides), else `none`. No fuzzy matching.
 * `/match/contact?email=&phone=&name=&org_id=` — email exact → safe; same last-10 phone digits → candidate; same normalized name inside `org_id` → candidate.
-* `/match/organization?id=|idem_key=|name=&domain=` — by name/domain the answer is never `safe`; `id` or an own `idem_key` recorded as an organization is.
-* `/match/ticket?marker=wf:<uuid>|number=|user_id=&subject=&since=` — marker/number → safe; otherwise same contact + open + same normalized subject + created within ±1 h of `since` **by the caller** → candidate.
+* `/match/organization?id=|name=&domain=` — by name/domain the answer is never `safe`; `id` is. (`idem_key` was removed: there is no ledger.)
+* `/match/ticket?number=|user_id=&subject=&since=` — number → safe (the `marker` form was removed: tickets no longer carry a `wf:` marker); otherwise same contact + open + same normalized subject + created within ±1 h of `since` **by the caller** → candidate.
 
 ## Errors
 `candidates` (409, `details:{classification, matches[]}`), `conflict`, `validation_failed`, `forbidden`, `not_found`.

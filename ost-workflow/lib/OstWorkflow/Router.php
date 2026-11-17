@@ -3,9 +3,8 @@ namespace OstWorkflow;
 
 /**
  * Route table. Each handler class exposes `static routes(): array` of
- *   [METHOD, '/path/(?P<id>\d+)', 'handlerMethod', ['policy'=>'ticket.view', 'auth'=>true, 'idem'=>null, 'max_body'=>bytes]]
+ *   [METHOD, '/path/(?P<id>\d+)', 'handlerMethod', ['policy'=>'ticket.view', 'auth'=>true, 'max_body'=>bytes]]
  * Paths are relative to /workflow/v1 and are anchored by the router.
- * `idem` null = default (required for every authenticated write).
  */
 final class Router {
     /** Handler classes, in match order. Add new handler classes here. */
@@ -57,7 +56,6 @@ final class Router {
                         'action'  => $r[2],
                         'policy'  => $opts['policy'] ?? null,
                         'auth'    => $opts['auth'] ?? true,
-                        'idem'    => $opts['idem'] ?? null,
                         'max_body'=> $opts['max_body'] ?? null,
                     ];
                 }

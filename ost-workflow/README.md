@@ -13,7 +13,7 @@ Plugin de osTicket 1.17.2 (`ost:workflow`) que expone las capacidades del núcle
 plugin.php          manifiesto (id ost:workflow)
 workflow.php        archivo principal MÍNIMO: clase del plugin y ruta única /workflow/v1
 config.php          configuración de la instancia (secreto de firma cifrado, límites, valores por defecto)
-lib/OstWorkflow/    código (PSR-0, carga diferida): Pipeline, Router, Auth, Token, Idempotency, Policy, Emitter…
+lib/OstWorkflow/    código (PSR-0, carga diferida): Pipeline, Router, Auth, Token, Policy, Emitter…
 lib/OstWorkflow/Handlers/   un handler por área (Tickets, Threads, Files, Users, Orgs, Tasks, Sync…)
 docs/               wiki y referencia por área
 ```

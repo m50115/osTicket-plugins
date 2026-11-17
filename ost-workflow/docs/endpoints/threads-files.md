@@ -1,7 +1,7 @@
 # Threads and files — `/workflow/v1`
 
 Handlers: `lib/OstWorkflow/Handlers/Threads.php`, `Files.php`; helpers `Threading.php`, `Attachments.php`.
-Common rules (envelope `{data, meta}` / `{error:{code,message,field?,details?}}`, UTC ISO-8601, `Authorization: Bearer`, `Idempotency-Key` required on every POST, `$thisstaff` fixed by the pipeline) are those of the plugin core. Core line references are osTicket 1.17.2.
+Common rules (envelope `{data, meta}` / `{error:{code,message,field?,details?}}`, UTC ISO-8601, `Authorization: Bearer`, `Idempotency-Key` accepted but neither required nor stored, `$thisstaff` fixed by the pipeline) are those of the plugin core. Core line references are osTicket 1.17.2.
 
 ## Normalized objects
 
@@ -51,7 +51,7 @@ Body (JSON):
 Extra checks the SCP controller does and the core does not: merged child ticket → 409 `conflict` `{reason:"merged_child"}`; banned contact email → 409 `conflict` `{reason:"email_banned"}`. `notify:"all"` reaches the owner + active collaborators like the SCP. Client IP recorded on the entry is the real IP (`RateLimit::ip`, trusted proxies only), not the balancer's.
 Response 201: `{entry, effects:{sanitized:{removed_chars}, status_changed, status:{id,name,state,previous_id}|null, assignee_changed, assignee:{type,id,name}|null, notify, claim_requested, claimed}}`. Effects are computed from a before/after read of the ticket row (status, staff, team).
 Errors: 401, 403 (`ticket.reply` or ticket access), 404, 409 `conflict`, 422 (`notify`, `body`, `file_ids`, `status_id`, …), 403 `forbidden` for status rule, 409 `not_closeable`, 500 if an attachment ends up missing (never a success with fewer attachments).
-Side effects: email to recipients (unless `none`), status/assignee changes, `answered` flag, `object.created` signal, ThreadEntry rows, attachment rows. Not idempotent in the core: retry safety is the plugin's `Idempotency-Key` (same key + same body → the stored response with `Idempotent-Replayed: true`; different body → 422 `idempotency_key_reused`).
+Side effects: email to recipients (unless `none`), status/assignee changes, `answered` flag, `object.created` signal, ThreadEntry rows, attachment rows. Not idempotent in the core and the plugin keeps no replay ledger: a client that lost the response reconciles by reading the thread (`GET /tickets/{id}/thread`) before re-sending; this is practical reconciliation, not an absolute exactly-once guarantee.
 
 ### POST `/tickets/{id}/notes` — internal note
 Policy `ticket.view` only (like the SCP: no `PERM_*` for notes, scp/tickets.php:253-272). Core: `Ticket::postNote` (class.ticket.php:3509) → `ObjectThread::addNote`.
@@ -78,8 +78,8 @@ Response 201: `{entry, attached_file_ids}`. After inserting, the plugin re-reads
 `multipart/form-data`, field **`file`**, one part per request (files first, note after; Architecture §H). Policy: any agent.
 Validation: size ≤ min(`max_file_bytes` of the instance, core `max_file_size`) → 413 `too_large` `{max_bytes,size}`; empty → 422; MIME detected from content by `finfo` (client `Content-Type` ignored). Allowed: images (jpeg, png, gif, webp, heic, heif), pdf, json, text/plain, csv, **plus** whatever osTicket's *allowed file types* setting permits by extension/pattern — never executables/HTML/SVG/scripts, and an image/pdf extension must carry matching content (`evil.exe` renamed `.jpg` → 415 `unsupported_type` `{detected_type}`). PHP-level overflow (`post_max_size`, the body is dropped before the handler) → 413 `payload_too_large`. Missing part / more than one `file[]` / non-multipart → 422 `file`. Note: with a plain repeated field name (`file=…&file=…`) PHP keeps only the last one; use one part.
 Core: `AttachmentFile::_getKeyAndHash($tmp, true)` (class.file.php:287) precomputed and `AttachmentFile::create` (:389; deduplicates identical content by signature+size, so the same `file_id` can come back for the same bytes). Storage backend: whatever osTicket is configured with (sandbox: `D`, database chunks; downloads verified byte-identical).
-Response 201: `{file_id, hash, name, size, type, inline:false, sha256, created}`. `sha256` is of the received bytes so the app can verify. Ownership is recorded in the plugin table (`resource_type='file'`, `Idempotency::record`): only this agent may reference `file_id` in notes/replies, and it can download the unattached file itself. The upload name is kept on the attachment when the file is later attached (even if the core reused an existing file row).
-Retry: same `Idempotency-Key` + same bytes → the same response (`Idempotent-Replayed`).
+Response 201: `{file_id, hash, name, size, type, inline:false, sha256, created}`. `sha256` is of the received bytes so the app can verify. There is no ownership store: a `file_id` may be referenced in notes/replies when the file is still unattached (a pending upload; the core deletes those after about a day) or attached to a ticket/task the agent can access; `GET /files/{hash}` follows the same rule. The attachment keeps the name stored on the file row (when the core reused an existing row for identical content, that is the first uploader's name).
+Retry: uploading the same bytes again returns the same file row (the core deduplicates by content).
 
 ### GET `/files/{hash}` (with byte ranges)
 **`Range: bytes=a-b | a- | -n`** (single range; `If-Range` with the ETag) → `206 Partial Content` + `Content-Range` (resume an interrupted download, read a PDF's tail); unsatisfiable → `416` with `Content-Range: bytes */size`. Every full response carries `Accept-Ranges: bytes`. Verified: 0-9, suffix, tail, out of range, and 2 halves reassemble to the original sha256.

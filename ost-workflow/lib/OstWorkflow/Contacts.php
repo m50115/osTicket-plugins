@@ -79,16 +79,16 @@ final class Contacts {
     }
 
     static function times($table, $idCol, $id) {
-        $r = Store::row('SELECT created, updated FROM ' . $table . ' WHERE ' . $idCol . '=' . (int) $id);
+        $r = Db::row('SELECT created, updated FROM ' . $table . ' WHERE ' . $idCol . '=' . (int) $id);
         return ['created' => Time::iso($r['created'] ?? null), 'updated' => Time::iso($r['updated'] ?? null)];
     }
 
     static function user(\User $u) {
-        $fresh = Store::row('SELECT u.name, u.org_id, e.address FROM ' . USER_TABLE . ' u LEFT JOIN ' . USER_EMAIL_TABLE
+        $fresh = Db::row('SELECT u.name, u.org_id, e.address FROM ' . USER_TABLE . ' u LEFT JOIN ' . USER_EMAIL_TABLE
             . ' e ON e.id=u.default_email_id WHERE u.id=' . (int) $u->getId());
         $org = !empty($fresh['org_id']) ? \Organization::lookup((int) $fresh['org_id']) : null;
         $emails = [];
-        $q = Store::q('SELECT address FROM ' . USER_EMAIL_TABLE . ' WHERE user_id=' . (int) $u->getId() . ' ORDER BY id');
+        $q = Db::q('SELECT address FROM ' . USER_EMAIL_TABLE . ' WHERE user_id=' . (int) $u->getId() . ' ORDER BY id');
         while ($q && ($r = db_fetch_array($q))) $emails[] = (string) $r['address'];
         return array_merge([
             'id'    => (int) $u->getId(),
@@ -110,7 +110,7 @@ final class Contacts {
     static function org(\Organization $o) {
         $mgr = $o->getAccountManager();
         $id = $o->getAccountManagerId();
-        $row = Store::row('SELECT extra FROM ' . ORGANIZATION_TABLE . ' WHERE id=' . (int) $o->getId());
+        $row = Db::row('SELECT extra FROM ' . ORGANIZATION_TABLE . ' WHERE id=' . (int) $o->getId());
         return array_merge([
             'id'      => (int) $o->getId(),
             'name'    => (string) $o->getName(),
@@ -159,8 +159,8 @@ final class Contacts {
      */
     static function rawAnswers($type, $id) {
         $out = [];
-        $q = Store::q('SELECT f.name, v.value FROM ' . FORM_ENTRY_TABLE . ' e JOIN ' . FORM_ANSWER_TABLE . ' v ON v.entry_id=e.id JOIN '
-            . FORM_FIELD_TABLE . ' f ON f.id=v.field_id WHERE e.object_type=' . Store::esc($type) . ' AND e.object_id=' . (int) $id
+        $q = Db::q('SELECT f.name, v.value FROM ' . FORM_ENTRY_TABLE . ' e JOIN ' . FORM_ANSWER_TABLE . ' v ON v.entry_id=e.id JOIN '
+            . FORM_FIELD_TABLE . ' f ON f.id=v.field_id WHERE e.object_type=' . Db::esc($type) . ' AND e.object_id=' . (int) $id
             . ' AND f.name IS NOT NULL AND f.name<>\'\'');
         while ($q && ($r = db_fetch_array($q)))
             $out[$r['name']] = (string) $r['value'];

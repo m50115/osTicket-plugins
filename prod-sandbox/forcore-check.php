@@ -11,7 +11,7 @@ chdir($app . '/api');
 $_SERVER['REQUEST_METHOD'] = 'GET'; $_SERVER['SERVER_NAME'] = '127.0.0.1'; $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 $_SERVER['SCRIPT_NAME'] = '/api/http.php'; $_SERVER['HTTP_HOST'] = '127.0.0.1:8090';
 require_once $app . '/api/api.inc.php';
-require_once $lib . '/Store.php';
+require_once $lib . '/Db.php';
 require_once $lib . '/Time.php';
 
 class StubCfg {

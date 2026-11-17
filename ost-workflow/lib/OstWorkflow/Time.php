@@ -30,7 +30,7 @@ final class Time {
     private static function calibrate() {
         if (self::$calibrated) return;
         self::$calibrated = true;
-        $r = Store::row('SELECT UNIX_TIMESTAMP() AS u, NOW() AS n');
+        $r = Db::row('SELECT UNIX_TIMESTAMP() AS u, NOW() AS n');
         if (!$r) return;
         $u = (int) $r['u'];
         $viaCore = self::coreGm($r['n']);

@@ -6,21 +6,10 @@ Válidas para todas las rutas de `/workflow/v1`. Dentro de `v1` solo hay cambios
 Éxito: `{"data": …, "meta": {…}}` (`meta` es opcional). Error: `{"error": {"code", "message", "field"?, "details"?}}`. Toda ruta, incluidas las desconocidas, responde JSON (`404`/`405` tipados); un fallo interno es `500 internal_error` con un `request_id` (sin detalles internos).
 
 ## Autenticación
-`POST /auth/login {username, password}` usa los mismos backends que el panel de agentes (nativo, LDAP, OAuth2…) y devuelve un token firmado (`Authorization: Bearer <token>`). Cada petición vuelve a leer al agente: si se desactiva, pierde el acceso de inmediato. `POST /auth/logout` revoca el token actual; `{"all": true}` revoca todos los del agente. **Una cuenta con segundo factor (2FA) habilitado en osTicket no puede iniciar sesión por esta API** (V1, decisión de MSOLIS del 28-sep-2026): `403 two_factor_required`, sin token y antes de tocar los backends (tampoco se envía el código por correo). El 2FA de osTicket es una marca de la sesión del panel que la API no tiene; emularlo queda fuera de V1. Las cuentas sin 2FA inician sesión con normalidad; la API V1 no implementa segundo factor interactivo (ni desafío ni endpoint de código). Si la app necesita agentes con 2FA: requisito → OW-REQ → diseño explícito de un flujo con desafío. Habilitar y validar el 2FA en producción es un frente de *production-readiness* aparte, no un defecto del plugin.
+`POST /auth/login {username, password}` usa los mismos backends que el panel de agentes (nativo, LDAP, OAuth2…) y devuelve un token firmado (`Authorization: Bearer <token>`). Cada petición vuelve a leer al agente: si se desactiva, pierde el acceso de inmediato. El token es **firmado y sin estado** (sin tabla): lleva una huella corta de la contraseña y del estado activo del agente en osTicket, de modo que cambiar la contraseña o bloquear/desactivar la cuenta lo invalida; un agente borrado tampoco entra. `POST /auth/logout` responde `200` y el cliente descarta el token: **no revoca** un token aún vigente antes de su vida útil (la autenticación es de osTicket). El bloqueo por intentos fallidos lo hacen los backends nativos de osTicket; el plugin no tiene limitador propio. **Una cuenta con segundo factor (2FA) habilitado en osTicket no puede iniciar sesión por esta API** (V1, decisión de MSOLIS del 28-sep-2026): `403 two_factor_required`, sin token y antes de tocar los backends (tampoco se envía el código por correo). El 2FA de osTicket es una marca de la sesión del panel que la API no tiene; emularlo queda fuera de V1. Las cuentas sin 2FA inician sesión con normalidad; la API V1 no implementa segundo factor interactivo (ni desafío ni endpoint de código). Si la app necesita agentes con 2FA: requisito → OW-REQ → diseño explícito de un flujo con desafío. Habilitar y validar el 2FA en producción es un frente de *production-readiness* aparte, no un defecto del plugin.
 
-## Idempotencia (escrituras)
-Toda escritura (`POST`, `PUT`, `PATCH`, `DELETE`, salvo login/logout) exige `Idempotency-Key` (8–64 caracteres: letras, números y guion; un UUID sirve). Reintentar con la misma clave devuelve la respuesta original con la cabecera `Idempotent-Replayed: true` y **no repite el efecto**.
-
-| Situación | Respuesta |
-|---|---|
-| Sin clave | `400 idempotency_key_required` |
-| Misma clave, otro cuerpo o ruta | `422 idempotency_key_reused` |
-| La misma operación sigue en curso | `409 in_progress` + `Retry-After` |
-| Un intento anterior murió y no se puede probar qué creó | `409 needs_review` (un humano verifica en el servidor) |
-| Error 5xx sin recurso creado | la clave se olvida (se puede reintentar) |
-| Error 4xx determinista | se guarda y se repite |
-
-Los tickets creados llevan el marcador `source_extra = wf:<clave>`: si el cliente no recibió la respuesta, el reintento adopta el ticket ya creado en lugar de duplicarlo. El registro se conserva 30 días.
+## Reintentos y conciliación (escrituras)
+El plugin **no guarda ninguna tabla ni registro de repetición**. `Idempotency-Key` se **acepta** por compatibilidad (la app puede seguir enviándola) pero no es obligatoria ni se almacena: no hay `Idempotent-Replayed`, ni `409 in_progress`/`needs_review`, ni `422 idempotency_key_reused`. Quien reintenta (la cola M16 de la app) **concilia contra el estado oficial**: `GET /tickets?q=&state=all&user_id=&limit=`, `GET /match/ticket` (por `number` o contacto + asunto + ventana), el propio recurso, o el valor `base` de las actualizaciones. Es una conciliación práctica, **no una garantía absoluta de exactamente-una-vez**: una creación cuya respuesta se perdió puede repetirse si el cliente no concilia antes. Los ids de cliente por elemento que forman parte del contrato (p. ej. el `id` de cada ítem de `/maintenances/batch`) siguen siendo idempotentes por elemento.
 
 ## Valores base (actualizaciones)
 Las actualizaciones de campos que pueden cambiar en paralelo (estado, asignación, transferencia, prioridad, tema, SLA, vencimiento, dueño, organización de un contacto, datos de contacto, perfil y `extra` de organizaciones) llevan **`base`**: el valor que el cliente vio (`null` = estaba vacío).
@@ -57,19 +46,17 @@ Las operaciones con efectos en el núcleo los piden explícitos: `notify` (`all`
 ## Catálogo de errores (cerrado)
 | Código | HTTP | Cuándo |
 |---|---|---|
-| `unauthorized` | 401 | token ausente, inválido, revocado o cuenta inactiva |
+| `unauthorized` | 401 | token ausente, inválido, vencido, o cuenta inactiva/borrada/con la contraseña cambiada |
 | `forbidden` | 403 | falta un permiso (el mensaje lo nombra) o el departamento no es accesible (`details.reason = department_not_accessible`) |
 | `two_factor_required` | 403 | la cuenta tiene segundo factor en osTicket: no puede iniciar sesión por la API |
 | `not_found` | 404 | recurso o ruta inexistente |
 | `method_not_allowed` | 405 | método incorrecto (`Allow`) |
 | `validation_failed` | 422 | dato inválido (`field`) |
-| `idempotency_key_required` | 400 | escritura sin clave |
-| `idempotency_key_reused` | 422 | clave repetida con otra petición |
-| `in_progress` / `needs_review` / `conflict` / `candidates` / `locked` / `not_closeable` | 409 | ver secciones anteriores; `candidates` incluye `details.classification` y `matches[]` |
+| `conflict` / `candidates` / `locked` / `not_closeable` | 409 | ver secciones anteriores; `candidates` incluye `details.classification` y `matches[]` |
 | `unsupported_type` | 415 | tipo de archivo no permitido |
 | `file_expired` | 410 | el archivo se subió pero el núcleo lo borró antes de adjuntarlo (vuelve a subirlo) |
 | `attachment_missing` | 409 | la entrada se creó pero faltan adjuntos (`details.entry_id`, `missing_file_ids`) |
 | `too_large` / `payload_too_large` | 413 | archivo o cuerpo demasiado grande |
-| `rate_limited` | 429 | demasiados intentos de login, o presupuesto por hora agotado (`details.bucket`: `mail`, `upload`, `pdf`, `lookup`); `Retry-After`. Un 429 nunca se reproduce con la misma `Idempotency-Key` |
+| `rate_limited` | 429 | solo el almacén de mantenimientos bajo contención (`details.reason = busy`); `Retry-After`. No hay presupuestos por hora |
 | `not_configured` | 503 | falta el secreto de firma en la instancia |
 | `internal_error` | 500 | fallo inesperado (`details.request_id`) |

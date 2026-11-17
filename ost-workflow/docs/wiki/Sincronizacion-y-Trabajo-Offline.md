@@ -3,7 +3,7 @@
 Guía para el cliente. El detalle de rutas está en [sync-reports](../endpoints/sync-reports.md).
 
 ## Escribir sin conexión: una operación = una petición
-Cada operación de la cola del cliente es **una petición HTTP con su `Idempotency-Key`** (el `op_id`). No hay lotes ni endpoint transaccional: el núcleo de osTicket confirma cambios a mitad de una creación y envía correo de forma síncrona, así que no existe atomicidad de varios pasos. Las operaciones compuestas se modelan con dependencias en el cliente:
+Cada operación de la cola del cliente es **una petición HTTP** (puede seguir enviando `Idempotency-Key`/`op_id`; el servidor no la guarda ni la exige: la cola concilia contra el estado oficial). No hay lotes ni endpoint transaccional: el núcleo de osTicket confirma cambios a mitad de una creación y envía correo de forma síncrona, así que no existe atomicidad de varios pasos. Las operaciones compuestas se modelan con dependencias en el cliente:
 
 ```
 buscar/crear cliente → buscar/crear ticket → subir archivos ×N → nota (file_ids) → cambiar estado
@@ -14,12 +14,11 @@ Archivos primero y nota después: `POST /files` sube **un archivo por petición*
 ## Qué hacer con cada respuesta
 | Respuesta | Acción del cliente |
 |---|---|
-| 2xx, o `Idempotent-Replayed: true` | hecho; registrar el id del servidor |
+| 2xx | hecho; registrar el id del servidor |
 | Timeout o corte tras enviar | reintentar **con la misma clave** |
-| `409 in_progress` | reintentar tras `Retry-After` |
-| `409 conflict`, `candidates`, `needs_review` | requiere decisión de una persona |
+| `409 conflict`, `candidates` | requiere decisión de una persona |
 | `401` | pausar la cola hasta un nuevo login |
-| `422 idempotency_key_reused` y otros 4xx deterministas | fallo definitivo; mostrar el error |
+| 4xx deterministas | fallo definitivo; mostrar el error |
 | 5xx, red | reintento con espera creciente |
 
 ## Reconciliación (evitar duplicados de clientes y tickets)

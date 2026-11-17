@@ -3,7 +3,6 @@ namespace OstWorkflow\Handlers;
 
 use OstWorkflow\ApiError;
 use OstWorkflow\Attachments;
-use OstWorkflow\Idempotency;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Stream;
@@ -30,7 +29,6 @@ final class Files {
         Attachments::boot();
         if (!$req->isMultipart())
             throw ApiError::validation('Send the file as multipart/form-data in the field "file"', 'file');
-        \OstWorkflow\Throttle::hit($req->staff, 'upload');   // unattached uploads pile up until the core's cron purges them
         $len = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
         if ($len > 0 && !$_POST && !$_FILES)
             // PHP dropped the body: post_max_size / upload limits exceeded, before we could see the file.
@@ -79,11 +77,8 @@ final class Files {
         if (!$file)
             throw new \RuntimeException('AttachmentFile::create failed');
 
-        // Ownership proof: a later note/reply may only reference files this agent uploaded.
-        Idempotency::record('file', $file->getId());
-
         // ->created is still an SqlFunction on a freshly created row: read it back.
-        $row = \OstWorkflow\Store::row('SELECT created FROM ' . FILE_TABLE . ' WHERE id=' . (int) $file->getId());
+        $row = \OstWorkflow\Db::row('SELECT created FROM ' . FILE_TABLE . ' WHERE id=' . (int) $file->getId());
         return Res::created(array_merge(Attachments::describe($file, $name), [
             'sha256'  => hash_file('sha256', $f['tmp_name']),
             'created' => Time::iso($row['created'] ?? null),

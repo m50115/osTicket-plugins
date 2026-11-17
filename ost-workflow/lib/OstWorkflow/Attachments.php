@@ -73,14 +73,6 @@ final class Attachments {
         return strtolower(pathinfo((string) $name, PATHINFO_EXTENSION));
     }
 
-    /** Display name (as uploaded) of a file this agent uploaded; null if unknown. */
-    static function uploadName($staffId, $fileId) {
-        $r = Store::row('SELECT response FROM ' . Store::table() . ' WHERE staff_id=' . (int) $staffId
-            . ' AND resource_type=\'file\' AND resource_id=' . Store::esc((string) $fileId) . ' ORDER BY id DESC LIMIT 1');
-        $d = $r && $r['response'] ? json_decode($r['response'], true) : null;
-        return is_array($d) && isset($d['data']['name']) ? (string) $d['data']['name'] : null;
-    }
-
     /** Client-supplied names are display text only: strip path, control chars, cap length. */
     static function safeName($name) {
         $name = basename(str_replace('\\', '/', (string) $name));
@@ -147,17 +139,19 @@ final class Attachments {
     }
 
     /**
-     * May the agent read this file? True when the agent uploaded it (not yet
-     * attached), or it is attached to a ticket/task entry the agent can access.
+     * May the agent use this file? Native rules only (no ownership store): true when it is attached to a ticket/task entry the
+     * agent can access, or when it is not attached anywhere yet (a pending upload: the file key/hash is the capability, the core
+     * deletes unattached files after about a day).
      * @param string|null $name set to the attachment's display name when found
      */
     static function canAccess(\Staff $staff, \AttachmentFile $file, &$name = null) {
-        if (Idempotency::ownsFile($staff->getId(), $file->getId()))
-            return true;
         self::boot();
         require_once(INCLUDE_DIR . 'class.task.php');
-        $atts = \Attachment::objects()->filter(['file_id' => $file->getId(), 'type' => 'H']);
+        $atts = \Attachment::objects()->filter(['file_id' => $file->getId()]);
+        $any = false;
         foreach ($atts as $att) {
+            $any = true;
+            if ($att->type !== 'H') continue;
             $entry = $att->getObject();
             if (!$entry || !($entry instanceof \ThreadEntry)) continue;
             $thread = $entry->getThread();
@@ -168,13 +162,13 @@ final class Attachments {
                 return true;
             }
         }
-        return false;
+        return !$any;
     }
 
     /**
      * Validate the `file_ids` input of a write and return the AttachmentFile
-     * objects. Every id must exist AND have been uploaded by this agent
-     * (POST /files), because the core accepts any id (Architecture §I).
+     * objects. Every id must exist AND be usable by this agent
+     * (canAccess: pending upload or attached where the agent has access), because the core accepts any id (Architecture §I).
      * @return \AttachmentFile[]
      */
     static function resolve($raw, \Staff $staff, $field = 'file_ids') {
@@ -195,13 +189,10 @@ final class Attachments {
         $files = [];
         foreach ($ids as $id) {
             $f = $id > 0 ? \AttachmentFile::lookup($id) : null;
-            $mine = $id > 0 && Idempotency::ownsFile($staff->getId(), $id);
-            if (!$f && $mine)
-                // Uploaded by this agent but no longer there: the core deletes files that stay unattached for a day.
-                throw new ApiError('file_expired', "file $id was uploaded but expired before it was attached; upload it again", $field,
+            if (!$f || !self::canAccess($staff, $f))
+                // Unknown, expired (the core deletes files that stay unattached for a day: upload it again) or not yours.
+                throw ApiError::validation("file $id is unknown, expired or not accessible; upload it again", $field,
                     ['file_id' => $id, 'retention' => 'unattached uploads are deleted after about 1 day']);
-            if (!$f || !$mine)
-                throw ApiError::validation("file $id is unknown or was not uploaded by this agent", $field, ['file_id' => $id]);
             $files[] = $f;
         }
         return $files;
@@ -241,10 +232,6 @@ final class Attachments {
         $out = [];
         foreach ($files as $f) {
             $i = ['id' => $f->getId(), 'key' => $f->getKey()];
-            // The core deduplicates identical content into one file row; keep the name
-            // this agent uploaded it with on the attachment.
-            if ($staff && ($n = self::uploadName($staff->getId(), $f->getId())))
-                $i['name'] = $n;
             $out[] = $i;
         }
         return $out;

@@ -9,12 +9,10 @@ Síntomas y su causa. Todos se reprodujeron en el sandbox, salvo el último, que
 | **413 con HTML** de nginx al subir un archivo | `client_max_body_size` (1 MB por defecto) | defina un límite mayor en nginx |
 | `503 not_configured` en el login | la instancia no tiene el secreto de firma (≥ 32 caracteres) | configúrelo en la instancia |
 | `401 unauthorized` con un token que antes servía | token revocado (`logout`), secreto rotado, agente desactivado o token caducado | iniciar sesión de nuevo |
-| `429 rate_limited` | 5 intentos fallidos de ese usuario desde esa IP | esperar `Retry-After`; configure los proxies de confianza si todas las peticiones parecen venir de la misma IP |
-| `400 idempotency_key_required` | escritura sin cabecera `Idempotency-Key` | envíe un UUID por operación |
+| `429 rate_limited` | solo el almacén de mantenimientos bajo contención (`details.reason = busy`) | esperar `Retry-After` y reintentar |
 | `410 file_expired` al publicar una nota con archivos | el archivo se subió hace más de un día sin adjuntarse y el núcleo lo limpió | sube el archivo otra vez |
 | `409 attachment_missing` | la entrada se creó pero un adjunto no se pudo vincular | `POST /tickets/{id}/notes/{entry}/files` con los `missing_file_ids` |
 | Un emoji desaparece del mensaje | la base de datos es `utf8mb3` (osTicket lo descarta) | revisa `effects.sanitized` y `/config` → `text`; usa `unsupported_chars:"reject"` si no quieres perderlo en silencio |
-| `409 needs_review` | un intento anterior murió y no se puede probar lo que creó | verifique en el servidor (p. ej. `GET /match/ticket?marker=wf:<clave>`) |
 | `409 conflict` al actualizar | el valor cambió desde que el cliente lo leyó | mostrar `details.current` y `details.last_change` |
 | `409 conflict` con `details.current_entry_id` al editar una nota | la nota ya tiene una versión más nueva (otra edición) | releer la nota, mostrar la versión vigente y reaplicar sobre `current_entry_id` ([Respuestas-y-Notas.md](Respuestas-y-Notas.md)) |
 | `422 not_editable_type` al editar | la entrada es una respuesta pública o un mensaje del cliente | solo las notas internas se editan; publique una respuesta nueva |

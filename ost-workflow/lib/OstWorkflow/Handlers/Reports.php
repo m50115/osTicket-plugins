@@ -4,7 +4,7 @@ namespace OstWorkflow\Handlers;
 use OstWorkflow\ApiError;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
-use OstWorkflow\Store;
+use OstWorkflow\Db;
 use OstWorkflow\Time;
 
 /**
@@ -46,7 +46,7 @@ final class Reports {
         $rows = [];
         foreach (array_chunk($ids, 2000) as $chunk) {
             $in = implode(',', $chunk);
-            $q = Store::q('SELECT ' . $col . ' AS k, COUNT(*) AS created_n, SUM(s.state=\'closed\') AS closed_n, SUM(s.state=\'open\') AS open_n,'
+            $q = Db::q('SELECT ' . $col . ' AS k, COUNT(*) AS created_n, SUM(s.state=\'closed\') AS closed_n, SUM(s.state=\'open\') AS open_n,'
                 . ' SUM(t.isoverdue=1 AND s.state=\'open\') AS overdue_n, SUM(t.isanswered=1) AS answered_n,'
                 . ' SUM(CASE WHEN t.closed IS NOT NULL THEN TIMESTAMPDIFF(SECOND, t.created, t.closed) END) AS close_secs, SUM(t.closed IS NOT NULL) AS close_n'
                 . ' FROM ' . TICKET_TABLE . ' t JOIN ' . TICKET_STATUS_TABLE . ' s ON s.id=t.status_id'

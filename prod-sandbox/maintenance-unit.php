@@ -51,7 +51,7 @@ namespace OstWorkflow {
 final class Documents {
     const UUID = '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/';
     static $docs = [];            // "uuid@v" => ticket id
-    static function find(array $d, $version = null) {
+    static function find(array $d, $version = null, $ticketId = null) {
         $k = strtolower($d['uuid']) . '@' . (int) $d['version'];
         return isset(self::$docs[$k]) ? ['ticket_id' => self::$docs[$k]] : null;
     }

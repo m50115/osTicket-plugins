@@ -1,7 +1,6 @@
 <?php
 // Usage: php plugin-admin.php <app_dir> <install|uninstall|enable> [install_path]
-// `enable` re-runs the plugin's enable() (CREATE TABLE IF NOT EXISTS of the plumbing table, idempotent; the OW-REQ-70
-// maintenance store no longer has a table).
+// `enable` re-runs the plugin's enable() (the plugin owns no SQL table any more; it is the base Plugin::enable()).
 // Installs/uninstalls ost-workflow through osTicket's own PluginManager (same as the admin UI), CLI only.
 $app = $argv[1]; $action = $argv[2] ?? ''; $path = $argv[3] ?? 'plugins/ost-workflow';
 chdir($app . '/api');
@@ -18,7 +17,7 @@ if ($action === 'uninstall') {
 }
 if ($action === 'enable') {
     if (!$p) { echo "not installed\n"; exit(1); }
-    echo $p->getImpl()->enable() ? "enabled (tables ensured)\n" : "enable FAILED\n";
+    echo $p->getImpl()->enable() ? "enabled (the plugin creates no tables)\n" : "enable FAILED\n";
     exit(0);
 }
 if ($action === 'install') {

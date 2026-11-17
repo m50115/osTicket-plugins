@@ -23,7 +23,6 @@ class OstWorkflowPlugin extends Plugin {
         // PluginManager clears the side-loaded config right after bootstrap(),
         // so capture it now (values only; no DB access happens here).
         $config = $this->getConfig();
-        Signal::connect('cron', array('OstWorkflowPlugin', 'purgeExpired'));
         Signal::connect('api', function ($dispatcher) use ($plugin, $config) {
             // Single catch-all matcher; the plugin owns its routing.
             $dispatcher->append(
@@ -34,32 +33,10 @@ class OstWorkflowPlugin extends Plugin {
         });
     }
 
-    /**
-     * Housekeeping on osTicket's own cron: purge expired plumbing rows (idempotency records after 30 days,
-     * expired revocation and login-throttle rows). Loaded only when the cron actually fires.
-     */
-    static function purgeExpired() {
-        try {
-            \OstWorkflow\Store::purge(true);
-        } catch (\Throwable $t) {
-            error_log('[ost-workflow] cron purge failed: ' . $t->getMessage());
-        }
-    }
-
     function isMultiInstance() {
         return false;
     }
 
-    function enable() {
-        try {
-            // The plumbing table (CREATE IF NOT EXISTS). The ScheduledMaintenance store (OW-REQ-70) has no table: it lives
-            // in a native Custom List (plugin setting maintenance_list_id; see docs/endpoints/maintenance.md).
-            return \OstWorkflow\Store::install();
-        } catch (\Throwable $t) {
-            global $errors;
-            if (is_array($errors))
-                $errors['err'] = 'ost-workflow: could not create its table: ' . $t->getMessage();
-            return false;
-        }
-    }
+    // No enable()/install hook: the plugin creates no SQL table (M16 campaign). The ScheduledMaintenance store lives in a
+    // native Custom List (plugin setting maintenance_list_id; see docs/endpoints/maintenance.md).
 }

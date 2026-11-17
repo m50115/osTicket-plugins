@@ -5,7 +5,7 @@ use OstWorkflow\ApiError;
 use OstWorkflow\Contacts;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
-use OstWorkflow\Store;
+use OstWorkflow\Db;
 use OstWorkflow\Ticketing;
 use OstWorkflow\Time;
 
@@ -28,7 +28,6 @@ final class Matching {
 
     /** GET /match/contact?email=&phone=&name=&org_id= */
     static function contact(Request $req) {
-        if (!\OstWorkflow\Directory::full($req->staff)) \OstWorkflow\Throttle::hit($req->staff, 'lookup');
         $r = self::findContacts((string) $req->q('email', ''), (string) $req->q('phone', ''), (string) $req->q('name', ''),
             $req->q('org_id') !== null ? self::intArg($req, 'org_id') : null);
         return Res::ok($r['result'], ['query' => array_filter(['email' => $req->q('email'), 'phone' => $req->q('phone'), 'name' => $req->q('name'), 'org_id' => $req->q('org_id')])]);
@@ -51,9 +50,9 @@ final class Matching {
         $l10 = Contacts::last10($phone);
         if ($l10 !== '') {
             $tail = substr($l10, -4);
-            $q = Store::q('SELECT DISTINCT e.object_id AS uid, v.value FROM ' . FORM_ENTRY_TABLE . ' e JOIN ' . FORM_ANSWER_TABLE . ' v ON v.entry_id=e.id'
+            $q = Db::q('SELECT DISTINCT e.object_id AS uid, v.value FROM ' . FORM_ENTRY_TABLE . ' e JOIN ' . FORM_ANSWER_TABLE . ' v ON v.entry_id=e.id'
                 . ' JOIN ' . FORM_FIELD_TABLE . ' f ON f.id=v.field_id WHERE e.object_type=\'U\' AND f.name=\'phone\''
-                . ' AND v.value LIKE ' . Store::esc('%' . $tail . '%') . ' LIMIT 200');
+                . ' AND v.value LIKE ' . Db::esc('%' . $tail . '%') . ' LIMIT 200');
             while ($q && ($row = db_fetch_array($q)))
                 if (Contacts::last10($row['value']) === $l10)
                     $cands[(int) $row['uid']]['same_phone'] = true;
@@ -61,7 +60,7 @@ final class Matching {
         // CANDIDATE: same normalized name inside the same organization.
         if ($name !== '' && $orgId) {
             $n = Contacts::norm($name);
-            $q = Store::q('SELECT id, name FROM ' . USER_TABLE . ' WHERE org_id=' . (int) $orgId . ' LIMIT 2000');
+            $q = Db::q('SELECT id, name FROM ' . USER_TABLE . ' WHERE org_id=' . (int) $orgId . ' LIMIT 2000');
             while ($q && ($row = db_fetch_array($q)))
                 if (Contacts::norm($row['name']) === $n)
                     $cands[(int) $row['id']]['same_name_in_org'] = true;
@@ -75,11 +74,10 @@ final class Matching {
         return ['safe' => null, 'result' => ['classification' => $class, 'matches' => $matches]];
     }
 
-    /** GET /match/organization?id=|idem_key=|name=&domain= — by name/domain the answer is never "safe". */
+    /** GET /match/organization?id=|name=&domain= — by name/domain the answer is never "safe". */
     static function organization(Request $req) {
         require_once(INCLUDE_DIR . 'class.organization.php');
-        // SAFE by server identity: an id, or the resource recorded for one of this agent's own idempotency keys.
-        if (!\OstWorkflow\Directory::full($req->staff)) \OstWorkflow\Throttle::hit($req->staff, 'lookup');
+        // SAFE by server identity: an id.
         if ($req->q('id') !== null) {
             $o = \Organization::lookup(self::intArg($req, 'id'));
             // An id is not a search: outside the directory it only answers for organizations the agent may read.
@@ -87,17 +85,10 @@ final class Matching {
             return Res::ok($o ? ['classification' => 'safe', 'matches' => [['reason' => 'server_id', 'organization' => self::orgBrief($o)]]]
                               : ['classification' => 'none', 'matches' => []]);
         }
-        if ($req->q('idem_key') !== null) {
-            $r = Store::row('SELECT resource_id FROM ' . Store::table() . ' WHERE kind=\'idem\' AND staff_id=' . (int) $req->staff->getId()
-                . ' AND idem_key=' . Store::esc((string) $req->q('idem_key')) . ' AND resource_type=\'organization\'');
-            $o = $r ? \Organization::lookup((int) $r['resource_id']) : null;
-            return Res::ok($o ? ['classification' => 'safe', 'matches' => [['reason' => 'idempotency_record', 'organization' => self::orgBrief($o)]]]
-                              : ['classification' => 'none', 'matches' => []]);
-        }
         $name = trim((string) $req->q('name', ''));
         $domain = strtolower(trim((string) $req->q('domain', '')));
         if ($name === '' && $domain === '')
-            throw ApiError::validation("Send 'id', 'idem_key', 'name' or 'domain'");
+            throw ApiError::validation("Send 'id', 'name' or 'domain'");
         return Res::ok(self::orgCandidates($name, $domain));
     }
 
@@ -107,13 +98,13 @@ final class Matching {
         $cands = [];
         if ($name !== '') {
             $n = Contacts::normOrg($name);
-            $q = Store::q('SELECT id, name FROM ' . ORGANIZATION_TABLE . ' LIMIT 5000');
+            $q = Db::q('SELECT id, name FROM ' . ORGANIZATION_TABLE . ' LIMIT 5000');
             while ($q && ($row = db_fetch_array($q)))
                 if ($n !== '' && Contacts::normOrg($row['name']) === $n)
                     $cands[(int) $row['id']] = 'same_normalized_name';
         }
         if ($domain !== '') {
-            $q = Store::q('SELECT id, domain FROM ' . ORGANIZATION_TABLE . ' WHERE domain<>\'\' LIMIT 5000');
+            $q = Db::q('SELECT id, domain FROM ' . ORGANIZATION_TABLE . ' WHERE domain<>\'\' LIMIT 5000');
             while ($q && ($row = db_fetch_array($q)))
                 foreach (array_map('trim', explode(',', strtolower($row['domain']))) as $d)
                     if ($d === $domain && !isset($cands[(int) $row['id']]))
@@ -127,20 +118,13 @@ final class Matching {
     }
 
     /**
-     * GET /match/ticket?marker=|number=|user_id=&subject=&since=
-     * SAFE: the marker source_extra='wf:<uuid>' or a server number. CANDIDATE: same contact + open +
+     * GET /match/ticket?number=|user_id=&subject=&since=
+     * SAFE: a server number (no marker is written on tickets any more). CANDIDATE: same contact + open +
      * same normalized subject + created within +-1h of `since` by this agent.
      */
     static function ticket(Request $req) {
         require_once(INCLUDE_DIR . 'class.ticket.php');
         $vis = Ticketing::visible($req->staff);
-        if (($marker = $req->q('marker')) !== null) {
-            if (!preg_match('/^wf:[A-Za-z0-9-]{8,37}$/', (string) $marker))
-                throw ApiError::validation("'marker' must look like wf:<uuid>", 'marker');
-            $t = $vis->filter(['source_extra' => (string) $marker])->first();
-            return Res::ok($t ? ['classification' => 'safe', 'matches' => [['reason' => 'marker', 'ticket' => Ticketing::summary($t)]]]
-                             : ['classification' => 'none', 'matches' => []]);
-        }
         if (($number = $req->q('number')) !== null) {
             $t = $vis->filter(['number' => (string) $number])->first();
             return Res::ok($t ? ['classification' => 'safe', 'matches' => [['reason' => 'server_number', 'ticket' => Ticketing::summary($t)]]]
@@ -150,7 +134,7 @@ final class Matching {
         $subject = trim((string) $req->q('subject', ''));
         $since = $req->q('since');
         if ($subject === '' || $since === null)
-            throw ApiError::validation("Send 'marker', 'number' or user_id + subject + since");
+            throw ApiError::validation("Send 'number' or user_id + subject + since");
         $sinceDb = Time::toDb((string) $since);
         if (!$sinceDb) throw ApiError::validation("'since' must be ISO-8601", 'since');
         $ts = strtotime($sinceDb . ' UTC');
@@ -161,7 +145,7 @@ final class Matching {
         foreach ($rows as $t) {
             if (Contacts::norm($t->getSubject()) !== $n) continue;
             // created by this same agent (the 'created' event carries the actor)
-            $ev = Store::row('SELECT e.id FROM ' . THREAD_EVENT_TABLE . ' e JOIN ' . TABLE_PREFIX . 'event ev ON ev.id=e.event_id WHERE e.thread_id='
+            $ev = Db::row('SELECT e.id FROM ' . THREAD_EVENT_TABLE . ' e JOIN ' . TABLE_PREFIX . 'event ev ON ev.id=e.event_id WHERE e.thread_id='
                 . (int) $t->getThreadId() . ' AND ev.name=\'created\' AND e.staff_id=' . (int) $req->staff->getId());
             if ($ev) $matches[] = ['reason' => 'same_contact_subject_window_author', 'ticket' => Ticketing::summary($t)];
         }

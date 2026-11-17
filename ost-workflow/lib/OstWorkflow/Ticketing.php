@@ -25,7 +25,7 @@ final class Ticketing {
     static function rows(array $ids) {
         $ids = array_values(array_filter(array_map('intval', $ids)));
         if (!$ids) return [];
-        $r = Store::q('SELECT ticket_id, created, updated, closed, lastupdate, reopened, duedate, est_duedate, source_extra,'
+        $r = Db::q('SELECT ticket_id, created, updated, closed, lastupdate, reopened, duedate, est_duedate, source_extra,'
             . ' isoverdue, isanswered FROM ' . TICKET_TABLE . ' WHERE ticket_id IN (' . implode(',', $ids) . ')');
         $out = [];
         while ($r && ($row = db_fetch_array($r)))
@@ -50,7 +50,7 @@ final class Ticketing {
         if (!$todo) return;
         $in = implode(',', $todo);
         $threads = [];
-        $q = Store::q('SELECT id, object_id, lastmessage, lastresponse FROM ' . THREAD_TABLE . ' WHERE object_type=\'T\' AND object_id IN (' . $in . ')');
+        $q = Db::q('SELECT id, object_id, lastmessage, lastresponse FROM ' . THREAD_TABLE . ' WHERE object_type=\'T\' AND object_id IN (' . $in . ')');
         while ($q && ($r = db_fetch_array($q))) $threads[(int) $r['id']] = $r;
         $out = [];
         foreach ($todo as $tid)
@@ -66,24 +66,24 @@ final class Ticketing {
                 $o['last_response_at'] = Time::iso($r['lastresponse']);
                 unset($o);
             }
-            $q = Store::q('SELECT thread_id, MAX(id) AS m FROM ' . THREAD_ENTRY_TABLE . ' WHERE thread_id IN (' . $tin . ') GROUP BY thread_id');
+            $q = Db::q('SELECT thread_id, MAX(id) AS m FROM ' . THREAD_ENTRY_TABLE . ' WHERE thread_id IN (' . $tin . ') GROUP BY thread_id');
             while ($q && ($r = db_fetch_array($q))) $out[$byThread[(int) $r['thread_id']]]['max_entry_id'] = (int) $r['m'];
-            $q = Store::q('SELECT thread_id, MAX(id) AS m FROM ' . THREAD_EVENT_TABLE . ' WHERE thread_id IN (' . $tin . ') GROUP BY thread_id');
+            $q = Db::q('SELECT thread_id, MAX(id) AS m FROM ' . THREAD_EVENT_TABLE . ' WHERE thread_id IN (' . $tin . ') GROUP BY thread_id');
             while ($q && ($r = db_fetch_array($q))) $out[$byThread[(int) $r['thread_id']]]['max_event_id'] = (int) $r['m'];
             $lastEv = [];
-            $q = Store::q('SELECT e.thread_id, MAX(e.timestamp) AS t FROM ' . THREAD_EVENT_TABLE . ' e JOIN ' . TABLE_PREFIX . 'event ev ON ev.id=e.event_id'
+            $q = Db::q('SELECT e.thread_id, MAX(e.timestamp) AS t FROM ' . THREAD_EVENT_TABLE . ' e JOIN ' . TABLE_PREFIX . 'event ev ON ev.id=e.event_id'
                 . ' WHERE e.thread_id IN (' . $tin . ') AND ev.name<>\'viewed\' GROUP BY e.thread_id');
             while ($q && ($r = db_fetch_array($q))) $lastEv[$byThread[(int) $r['thread_id']]] = $r['t'];
             // last VISIBLE entry per thread
-            $q = Store::q('SELECT thread_id, MAX(id) AS m FROM ' . THREAD_ENTRY_TABLE . ' WHERE thread_id IN (' . $tin . ') AND (flags & ' . \ThreadEntry::FLAG_HIDDEN . ')=0 GROUP BY thread_id');
+            $q = Db::q('SELECT thread_id, MAX(id) AS m FROM ' . THREAD_ENTRY_TABLE . ' WHERE thread_id IN (' . $tin . ') AND (flags & ' . \ThreadEntry::FLAG_HIDDEN . ')=0 GROUP BY thread_id');
             $lastIds = [];
             while ($q && ($r = db_fetch_array($q))) $lastIds[$byThread[(int) $r['thread_id']]] = (int) $r['m'];
             $rows = [];
             if ($lastIds) {
-                $q = Store::q('SELECT id, type, staff_id, user_id, poster, created, body, format FROM ' . THREAD_ENTRY_TABLE . ' WHERE id IN (' . implode(',', $lastIds) . ')');
+                $q = Db::q('SELECT id, type, staff_id, user_id, poster, created, body, format FROM ' . THREAD_ENTRY_TABLE . ' WHERE id IN (' . implode(',', $lastIds) . ')');
                 while ($q && ($r = db_fetch_array($q))) $rows[(int) $r['id']] = $r;
                 $files = [];
-                $q = Store::q('SELECT DISTINCT object_id FROM ' . ATTACHMENT_TABLE . ' WHERE type=\'H\' AND inline=0 AND object_id IN (' . implode(',', $lastIds) . ')');
+                $q = Db::q('SELECT DISTINCT object_id FROM ' . ATTACHMENT_TABLE . ' WHERE type=\'H\' AND inline=0 AND object_id IN (' . implode(',', $lastIds) . ')');
                 while ($q && ($r = db_fetch_array($q))) $files[(int) $r['object_id']] = true;
             }
             foreach ($lastIds as $tid => $eid) {
@@ -380,8 +380,8 @@ final class Ticketing {
     /** Author and time of the latest relevant thread event. */
     static function lastChange($t, $group) {
         $names = self::EVENT_NAMES[$group] ?? ['edited'];
-        $in = implode(',', array_map(function ($n) { return Store::esc($n); }, $names));
-        $r = Store::row('SELECT e.timestamp, e.uid, e.uid_type, e.staff_id, ev.name FROM ' . THREAD_EVENT_TABLE . ' e JOIN '
+        $in = implode(',', array_map(function ($n) { return Db::esc($n); }, $names));
+        $r = Db::row('SELECT e.timestamp, e.uid, e.uid_type, e.staff_id, ev.name FROM ' . THREAD_EVENT_TABLE . ' e JOIN '
             . TABLE_PREFIX . 'event ev ON ev.id=e.event_id WHERE e.thread_id=' . (int) $t->getThreadId()
             . ' AND ev.name IN (' . $in . ') ORDER BY e.id DESC LIMIT 1');
         if (!$r) return null;

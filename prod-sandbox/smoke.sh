@@ -21,12 +21,12 @@ check "GET /config"                       200 "$(code -H "$H" $BASE/config)"
 check "GET /me/permissions"               200 "$(code -H "$H" $BASE/me/permissions)"
 check "list requires state (422)"         422 "$(code -H "$H" "$BASE/tickets")"
 check "list open"                         200 "$(code -H "$H" "$BASE/tickets?state=open&limit=2")"
-check "write without Idempotency-Key"     400 "$(code -X POST -H "$H" -d '{}' $BASE/tickets)"
 K=$(uuidgen); B='{"subject":"smoke","message":"smoke","email":"smoke@example.com","name":"Smoke","topic_id":1}'
+check "write without Idempotency-Key is accepted" 201 "$(code -X POST -H "$H" -d "$B" $BASE/tickets)"
 A=$(curl -s -X POST -H "$H" -H "Idempotency-Key: $K" -d "$B" $BASE/tickets | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])' 2>/dev/null)
-R=$(curl -s -X POST -H "$H" -H "Idempotency-Key: $K" -d "$B" $BASE/tickets | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])' 2>/dev/null)
-check "create + replay = same ticket"     "$A" "$R"
-check "same key, other body is 422"       422 "$(code -X POST -H "$H" -H "Idempotency-Key: $K" -d '{"subject":"other","message":"x","user_id":1,"topic_id":1}' $BASE/tickets)"
-check "stale base is 409"                 409 "$(code -X POST -H "$H" -H "Idempotency-Key: $(uuidgen)" -d '{"status_id":3,"base":2}' $BASE/tickets/$A/status)"
-check "revoked token is 401"              401 "$(curl -s -X POST -H "$H" $BASE/auth/logout >/dev/null; code -H "$H" $BASE/config)"
+check "create with a (now ignored) key returns a ticket id" ok "$([ -n "$A" ] && echo ok || echo none)"
+check "reconciliation: GET /tickets/{id} finds it"  200 "$(code -H "$H" $BASE/tickets/$A)"
+check "stale base is 409"                 409 "$(code -X POST -H "$H" -d '{"status_id":3,"base":2}' $BASE/tickets/$A/status)"
+check "logout answers 200 (stateless)"     200 "$(code -X POST -H "$H" $BASE/auth/logout)"
+check "garbage token is 401"              401 "$(code -H "Authorization: Bearer a.b" $BASE/config)"
 echo "result: $ok ok, $bad failed"; [ $bad -eq 0 ]

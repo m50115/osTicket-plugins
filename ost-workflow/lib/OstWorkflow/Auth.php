@@ -4,7 +4,7 @@ namespace OstWorkflow;
 /**
  * Authentication stage. Login reuses the SCP backends (native, LDAP, OAuth2…)
  * through StaffAuthenticationBackend::process(). Every authenticated request
- * re-reads the Staff (a deactivated agent loses access immediately) and sets
+ * re-reads the Staff (a deactivated or deleted agent, or one whose password changed, loses access immediately) and sets
  * osTicket's global $thisstaff BEFORE any core call — Ticket::create,
  * postReply, setStatus, assign, transfer and Task::create all read it
  * (R-C09, PP-06).
@@ -18,8 +18,8 @@ final class Auth {
     static function authenticate(Request $req) {
         $payload = Token::verify(self::bearer($req));
         $staff = \Staff::lookup((int) $payload['id']);
-        if (!$staff || !$staff->isActive())
-            throw new ApiError('unauthorized', 'Account is not active');
+        if (!$staff || !$staff->isActive() || !Token::matches($payload, $staff))
+            throw new ApiError('unauthorized', 'Account is not active or its credentials changed');
         $req->staff = $staff;
         $req->tokenId = $payload;
         self::bindStaff($staff);

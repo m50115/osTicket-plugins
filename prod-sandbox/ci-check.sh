@@ -35,6 +35,12 @@ out=$(grep -rnE "^\s*\['(POST|PUT|PATCH|DELETE)'" "$SRC/lib/OstWorkflow/Handlers
 out=$(grep -rnE '\->delete\(|DELETE FROM|->purge\(' "$SRC/lib/OstWorkflow/Handlers" --include=*.php | grep -vE ':\s*(//|\*)' | head)
 [ -z "$out" ] && ok "no hard deletes in handlers (deactivate/supersede/append, never delete)" || bad "hard delete in a handler" "$out"
 
+out=$(grep -rnEi 'CREATE TABLE|DROP TABLE|ALTER TABLE|workflow_idempotency|Idempotency::|Throttle::' "$SRC/lib" "$SRC/workflow.php" "$SRC/config.php" --include=*.php | grep -vE ':\s*(//|\*)' | head)
+[ -z "$out" ] && ok "the plugin creates no SQL table and keeps no idempotency/throttle ledger (M16)" || bad "own SQL table or removed ledger referenced" "$out"
+
+out=$(grep -rnE "(INSERT INTO|UPDATE) *' *\. *(TICKET_TABLE|THREAD_ENTRY_TABLE|THREAD_TABLE)" "$SRC/lib" --include=*.php | grep -vE ':\s*(//|\*)' | head)
+[ -z "$out" ] && ok "no raw INSERT/UPDATE on the ticket/thread core tables (only the native model writes them)" || bad "raw write to a core table" "$out"
+
 grep -q "intSetting('token_ttl_days', 14)" "$SRC/lib/OstWorkflow/Token.php" && grep -A3 "'token_ttl_days'" "$SRC/config.php" | grep -q "'default'  => '14'" && ok "token lifetime baseline is 14 days (PC-S5)" || bad "token lifetime default is not 14 days (PC-S5)"
 
 if command -v python3 >/dev/null; then

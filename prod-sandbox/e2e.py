@@ -12,7 +12,7 @@ End-to-end regression suite for ost-workflow (HTTP, against a running sandbox).
        E2E_STRICT=1   any skip except the known one ("agent2 actions") counts as a FAILURE (use it to verify a rebuilt fixture)
 
 Each run creates its own data (unique emails/subjects); nothing is deleted afterwards.
-Covers the regression chains RC-* of the Technical Notes: routing, auth/tokens, idempotency and crash recovery,
+Covers the regression chains RC-* of the Technical Notes: routing, auth/tokens (stateless), optional Idempotency-Key (no ledger),
 base values, candidates, threads/files, sync, tasks, sandbox-only checks skipped when the DB is not reachable.
 Exit code 0 = all checks passed.
 """
@@ -173,15 +173,9 @@ me = call("GET", "/me/permissions", token=TOK)
 check("/me/permissions per department", me.status == 200 and len(me.data["departments"]) > 0 and "ticket.reply" in me.data["departments"][0]["permissions"])
 t2 = login(*ADMIN)
 call("POST", "/auth/logout", {}, token=t2, key=None)
-check("logged-out token is revoked", call("GET", "/config", token=t2).status == 401)
+r = call("POST", "/auth/logout", {}, token=t2, key=None)
+check("logout is stateless: 200 {logged_out:true, revoked:false}; the token is not revoked server-side before its TTL (M16)", r.status == 200 and r.data["logged_out"] is True and r.data["revoked"] is False)
 check("other tokens keep working", call("GET", "/config", token=TOK).status == 200)
-if A2[0]:
-    ta, tb = login(*A2), login(*A2)
-    call("POST", "/auth/logout", {"all": True}, token=ta, key=None)
-    check("logout all revokes every token of that agent", call("GET", "/config", token=ta).status == 401 and call("GET", "/config", token=tb).status == 401)
-    check("...and does not touch other agents", call("GET", "/config", token=TOK).status == 200)
-else:
-    skip("logout all", "needs AGENT2_USER/AGENT2_PASS (it would revoke the admin's tokens)")
 TOK2 = login(*A2) if A2[0] else None
 A3 = (os.environ.get("AGENT3_USER"), os.environ.get("AGENT3_PASS"))
 if not A3[0]:
@@ -242,11 +236,13 @@ tb = {"subject": "E2E %s" % U, "message": "hello", "user_id": UID, "topic_id": 1
 r = call("POST", "/tickets", tb, token=TOK, key=key)
 check("create ticket", r.status == 201 and r.data["subject"] == tb["subject"], r.raw[:120])
 TID = r.data["id"]
-check("ticket carries the idempotency marker", r.data["source_extra"] == "wf:" + key[:37])
-r2 = call("POST", "/tickets", tb, token=TOK, key=key)
-check("same key replays the same ticket", r2.status == 201 and r2.data["id"] == TID and r2.headers.get("Idempotent-Replayed") == "true")
-check("same key, other body -> 422", call("POST", "/tickets", dict(tb, subject="other"), token=TOK, key=key).err == "idempotency_key_reused")
-check("write without key -> 400", call("POST", "/tickets", tb, token=TOK, key=None).err == "idempotency_key_required")
+check("ticket carries no plugin marker (no direct write to ost_ticket)", not str(r.data["source_extra"] or "").startswith("wf:"))
+r2 = call("POST", "/tickets", dict(tb, subject="E2E nokey %s" % U), token=TOK, key=None)
+check("Idempotency-Key is optional: a write without it is accepted (201)", r2.status == 201 and r2.data["id"] != TID and "Idempotent-Replayed" not in r2.headers)
+r2 = call("POST", "/tickets", dict(tb, subject="E2E keyed %s" % U), token=TOK, key=key)
+check("a sent Idempotency-Key is accepted and ignored: never replayed, never 422 (no ledger)", r2.status == 201 and r2.data["id"] != TID and "Idempotent-Replayed" not in r2.headers)
+r2 = call("GET", "/tickets?state=all&limit=100&q=%s" % urllib.parse.quote(tb["subject"]), token=TOK)
+check("reconciliation: GET /tickets?q=&state=all finds the created ticket by its subject (number, owner, created)", r2.status == 200 and TID in [t["id"] for t in r2.data] and all(k in r2.data[0] for k in ("number", "subject", "owner", "created")))
 r = call("GET", "/tickets?state=all&limit=1", token=TOK)
 check("list: cursor page + real activity block", r.status == 200 and "activity" in r.data[0] and "excerpt" in json.dumps(r.data[0]["activity"]))
 ids = []
@@ -453,8 +449,9 @@ dn = {"body": "Service document %s, first version" % U, "document": {"uuid": DU,
 r = call("POST", "/tickets/%d/notes" % TID, dn, token=TOK)
 check("document note v1", r.status == 201 and r.data["document"]["uuid"] == DU)
 DE = r.data["entry"]["id"]
-r = call("POST", "/tickets/%d/notes" % TID, dn, token=TOK)   # new idempotency key: only the document index can answer
-check("retry with another key adopts the existing note", r.status == 200 and r.data["adopted"] and r.data["entry"]["id"] == DE)
+check("document note carries the BCW_DOC marker line (no index table)", "BCW_DOC:%s@1" % DU in r.data["entry"]["body"])
+r = call("POST", "/tickets/%d/notes" % TID, dn, token=TOK)   # no ledger: the existing note is found by reading the thread
+check("retry of the same document version adopts the existing note (read from the thread)", r.status == 200 and r.data["adopted"] and r.data["entry"]["id"] == DE)
 check("supersedes a version that does not exist -> 409", call("POST", "/tickets/%d/notes" % TID, {"body": "Service document second version", "document": {"uuid": DU, "version": 3, "supersedes": 2}}, token=TOK).status == 409)
 r = call("POST", "/tickets/%d/notes" % TID, {"body": "Service document %s, corrected" % U, "document": {"uuid": DU, "version": 2, "supersedes": 1}}, token=TOK)
 check("document v2 supersedes v1", r.status == 201)
@@ -686,8 +683,7 @@ if TOK2:
     check("an unknown hash and a foreign one look the same to Range (404 vs 403 never reveals content)", dl("f" * 32, TOK2, "range") == 404)
     b_, c_ = multipart("file", "mine-%s.txt" % U, b"agent2 private upload " + U.encode())
     MH = call("POST", "/files", token=TOK2, raw=b_, ctype=c_).data["hash"]
-    check("an unattached upload is readable by its uploader only", dl(MH, TOK2) == 200 and dl(MH, TOK) == 403 and dl(MH, TOK2, "range") == 206)
-    check("a document version cannot be planted on a second ticket", call("POST", "/tickets/%d/notes" % TID, {"body": "Sales document, first version", "document": {"uuid": SDU, "version": 1}}, token=TOK).status == 409)
+    check("an unattached upload is readable with its hash (no ownership store; the hash is the capability)", dl(MH, TOK2) == 200 and dl(MH, TOK2, "range") == 206)
 
     # D-22 requalification: the core enforces the department of a task only while it is OPEN (Task::checkStaffPerm), so a
     # CLOSED task of another department was readable, downloadable and writable by a Limited-Access agent.
@@ -722,39 +718,8 @@ if TOK2:
     check("agent2: the same task once CLOSED (own department) -> detail, thread, file, Range still readable", got[:3] == [200, 200, 200] and got[3] == 206, str(got))
     check("agent2: ... and a note can still be written on it", call("POST", "/tasks/%d/notes" % OP, {"body": "agent2 closed-task note %s" % U}, token=TOK2).status == 201)
 
-    # hourly budgets: seeded so the test is deterministic, cleaned afterwards
-    hour = time.strftime("%Y%m%d%H", time.gmtime())
-    def seed(staff, bucket, n):
-        sql("insert into ost_workflow_idempotency set kind='throttle', staff_id=%d, idem_key='th:%s:%s', status='done', counter=%d, created=NOW(), expires=DATE_ADD(NOW(), INTERVAL 2 HOUR) on duplicate key update counter=%d" % (staff, bucket, hour, n, n))
-    def unseed(staff, bucket):
-        sql("delete from ost_workflow_idempotency where kind='throttle' and staff_id=%d and idem_key='th:%s:%s'" % (staff, bucket, hour))
-    if sql("select 1") is not None:
-        seed(A2ID, "lookup", 100000)
-        r = call("GET", "/users?q=e2e", token=TOK2)
-        check("budget: an agent without directory access is limited on lookups (429 + Retry-After)", r.status == 429 and "Retry-After" in r.headers and r.err == "rate_limited")
-        check("budget: directory agents are not charged", call("GET", "/users?q=e2e", token=TOK).status == 200)
-        unseed(A2ID, "lookup")
-        check("budget: the window frees the agent again", call("GET", "/users?q=e2e", token=TOK2).status == 200)
-        seed(A2ID, "upload", 100000)
-        b_, c_ = multipart("file", "x-%s.txt" % U, b"x")
-        check("budget: uploads", call("POST", "/files", token=TOK2, raw=b_, ctype=c_).status == 429)
-        unseed(A2ID, "upload")
-        seed(1, "pdf", 100000)
-        check("budget: ticket PDFs", call("GET", "/tickets/%d/pdf" % TID, token=TOK).status == 429)
-        unseed(1, "pdf")
-        seed(1, "mail", 100000)
-        K = str(uuid.uuid4())
-        rb = {"body": "budget probe", "notify": "user"}
-        r = call("POST", "/tickets/%d/replies" % TID, rb, token=TOK, key=K)
-        check("budget: customer e-mail (reply with notify) -> 429", r.status == 429 and r.err == "rate_limited")
-        check("budget: notify none is not e-mail and is not charged", call("POST", "/tickets/%d/replies" % TID, {"body": "no mail here", "notify": "none"}, token=TOK).status == 201)
-        unseed(1, "mail")
-        r = call("POST", "/tickets/%d/replies" % TID, rb, token=TOK, key=K)
-        check("budget: a 429 is not replayed for the same Idempotency-Key", r.status == 201 and "Idempotent-Replayed" not in r.headers, "%s %s" % (r.status, r.raw[:100]))
-    else:
-        skip("hourly budgets", "no DB access")
 else:
-    skip("directory, cross-department and budget checks", "no AGENT2_USER/AGENT2_PASS")
+    skip("directory and cross-department checks", "no AGENT2_USER/AGENT2_PASS")
 
 # ------------------------------------------------------------------ MSOLIS decisions PC-S1..PC-S5 (2026-09-28)
 print("\n[PC-S2..PC-S5: SLA curbs, contact e-mail, organization sharing, token lifetime]")
@@ -820,34 +785,6 @@ def payload(tok):
     return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
 pl = payload(TOK)
 check("PC-S5: token lifetime is 14 days", pl["exp"] - pl["iat"] == 14 * 86400, str(pl["exp"] - pl["iat"]))
-
-# ------------------------------------------------------------------ crash recovery (needs DB access)
-print("\n[idempotency crash recovery]")
-if sql("select 1") is not None:
-    K = str(uuid.uuid4())
-    B = {"subject": "E2E adopt %s" % U, "message": "crash", "user_id": UID, "topic_id": 1}
-    r = call("POST", "/tickets", B, token=TOK, key=K)
-    AT = r.data["id"]
-    sql("update ost_workflow_idempotency set status='in_progress', lease_until=DATE_SUB(NOW(), INTERVAL 5 MINUTE), resource_type=NULL, resource_id=NULL, response=NULL, http_code=0 where idem_key='%s'" % K)
-    r = call("POST", "/tickets", B, token=TOK, key=K)
-    check("expired lease + marker -> adopts the created ticket", r.status == 200 and r.data.get("adopted") and str(r.data["resource_id"]) == str(AT))
-    K2 = str(uuid.uuid4())
-    B2 = {"subject": "never created %s" % U, "message": "x", "user_id": UID, "topic_id": 1}
-    import hashlib
-    h = hashlib.sha256(json.dumps(B2).encode()).hexdigest()
-    # the body hash is over the raw JSON bytes the client sent: send exactly those bytes
-    raw2 = json.dumps(B2).encode()
-    h = hashlib.sha256(raw2).hexdigest()
-    sql("insert into ost_workflow_idempotency set kind='idem', staff_id=1, idem_key='%s', method='POST', route='POST /tickets', body_hash='%s', status='in_progress', lease_until=DATE_SUB(NOW(), INTERVAL 5 MINUTE), created=NOW(), expires=DATE_ADD(NOW(), INTERVAL 30 DAY)" % (K2, h))
-    r = call("POST", "/tickets", token=TOK, key=K2, raw=raw2)
-    check("expired lease, nothing provable -> needs_review", r.status == 409 and r.err == "needs_review")
-    K3 = str(uuid.uuid4())
-    raw3 = json.dumps({"subject": "in flight %s" % U, "message": "x", "user_id": UID, "topic_id": 1}).encode()
-    sql("insert into ost_workflow_idempotency set kind='idem', staff_id=1, idem_key='%s', method='POST', route='POST /tickets', body_hash='%s', status='in_progress', lease_until=DATE_ADD(NOW(), INTERVAL 60 SECOND), created=NOW(), expires=DATE_ADD(NOW(), INTERVAL 30 DAY)" % (K3, hashlib.sha256(raw3).hexdigest()))
-    r = call("POST", "/tickets", token=TOK, key=K3, raw=raw3)
-    check("live lease -> 409 in_progress + Retry-After", r.status == 409 and r.err == "in_progress" and "Retry-After" in r.headers)
-else:
-    skip("crash recovery", "no DB access (prod-sandbox/sql.sh needs ~/development/ost-sandbox/credentials.env)")
 
 # ------------------------------------------------------------------ MSOLIS final security decisions (2026-09-28)
 print("\n[final security decisions: 2FA A1, dept_id, actor, cid:/data:]")
@@ -965,8 +902,6 @@ else:
     T_OWN = fresh_ticket(TOK2) if TOK2 else fresh_ticket()
     tk2 = TOK2 or TOK
     att0, file0, mail0 = n_rows("ost_attachment"), n_rows("ost_file"), mp_total()
-    if TOK2:
-        check("D3: before the attempt, another agent's unattached upload is 403 for agent2", file_status(PF["hash"], TOK2) == 403)
     r = call("POST", "/tickets/%d/notes" % T_OWN, {"body": cid_html, "body_format": "html"}, token=tk2)
     check("D3: a foreign cid:<key> in an HTML note -> 422 validation_failed / inline_cid_not_supported", r.status == 422 and r.err == "validation_failed" and r.details.get("reason") == "inline_cid_not_supported" and (r.json["error"].get("field") == "body"), r.raw[:200])
     if TOK2:
@@ -1413,7 +1348,7 @@ else:
     check("batch: invalid DATE (31 Feb) -> rejected invalid_date; non-UUID id -> invalid_id", res[bd]["code"] == "invalid_date" and r.data[8]["code"] == "invalid_id")
     check("batch: only the three valid items were stored", mcount() - n0 == 3)
     r2 = call("POST", "/maintenances/batch", {"items": items}, token=TOK, key=KEY)
-    check("idempotency per request: same Idempotency-Key + body -> identical answer, replayed, nothing new", r2.status == 200 and r2.json == r.json and r2.headers.get("Idempotent-Replayed") == "true" and mcount() - n0 == 3)
+    check("no per-request ledger: the same request again is re-evaluated (200, no Idempotent-Replayed) and creates nothing new", r2.status == 200 and "Idempotent-Replayed" not in r2.headers and mcount() - n0 == 3)
     r3 = call("POST", "/maintenances/batch", {"items": items[:3]}, token=TOK)
     check("idempotency per item: a new request with the same client ids -> `exists` with the stored record, no duplicates", r3.status == 200 and [x["result"] for x in r3.data] == ["exists"] * 3 and r3.data[0]["maintenance"]["id"] == a1 and mcount() - n0 == 3)
     mixed = call("POST", "/maintenances/batch", {"items": [items[0], {"id": mid(), "equipment_id": EB, "scheduled_date": "2025-09-15"}]}, token=TOK)
@@ -1421,7 +1356,7 @@ else:
     b2 = mixed.data[1]["id"]
     check("batch: bad shapes -> 422 (no items, empty, over 200)", call("POST", "/maintenances/batch", {}, token=TOK).status == 422 and call("POST", "/maintenances/batch", {"items": []}, token=TOK).status == 422
           and call("POST", "/maintenances/batch", {"items": [{}] * 201}, token=TOK).status == 422)
-    check("batch: an Idempotency-Key is required (400)", call("POST", "/maintenances/batch", {"items": items[:1]}, token=TOK, key=None).err == "idempotency_key_required")
+    check("batch: Idempotency-Key is optional (no key -> 200, the item answers exists)", call("POST", "/maintenances/batch", {"items": items[:1]}, token=TOK, key=None).status == 200)
 
     # ---- reads ----------------------------------------------------------------------------------------------------
     r = call("GET", "/maintenances/%s" % a1, token=TOK2)
@@ -1627,25 +1562,13 @@ else:
     check("store: the store list is not a catalog (absent from /lists, 404 on its items)", all(x["id"] != MSTORE for x in call("GET", "/lists?limit=500", token=TOK).data) and call("GET", "/lists/%d/items" % MSTORE, token=TOK).status == 404)
     check("no plugin table is written: the retired table (if it still exists) is untouched", (not OLDTAB) or sql("select count(*) from ost_workflow_maintenance") == OLDCOUNT)
     n_before = mcount()
-    sql("update ost_workflow_idempotency set expires=DATE_SUB(NOW(), INTERVAL 1 DAY) where idem_key='%s'" % KEY)
-    check("durability setup: the batch's idempotency record is now expired", sql("select count(*) from ost_workflow_idempotency where idem_key='%s' and expires<NOW()" % KEY) == ["1"])
-    pr = subprocess.run([os.path.expanduser("~/development/ost-prod/php80/bin/php"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "purge-check.php"), os.path.expanduser("~/development/ost-sandbox/app")], capture_output=True, text=True)
-    check("the plugin's cron purge ran and removed the expired idempotency record ...", pr.stdout.strip() == "purged" and sql("select count(*) from ost_workflow_idempotency where idem_key='%s'" % KEY) == ["0"], pr.stdout + pr.stderr)
-    check("... and did not touch a single maintenance (no TTL, no purge)", mcount() == n_before and mrow(a1) is not None and mrow(b1) is not None)
-    check("replaying the purged key is a fresh request, and the per-item ids still make it idempotent (no duplicates)", [x["result"] for x in call("POST", "/maintenances/batch", {"items": items[:3]}, token=TOK, key=KEY).data] == ["exists"] * 3 and mcount() == n_before)
+    check("no TTL, no purge: the plugin has no table or cron job; every maintenance is still stored", mcount() == n_before and mrow(a1) is not None and mrow(b1) is not None)
+    check("replaying the batch with the same key is a new request, and the per-item ids still make it idempotent (no duplicates)", [x["result"] for x in call("POST", "/maintenances/batch", {"items": items[:3]}, token=TOK, key=KEY).data] == ["exists"] * 3 and mcount() == n_before)
     check("no hard delete: no maintenance route uses DELETE (405) and every id created in this run is still stored",
           call("DELETE", "/maintenances/%s" % a1, token=TOK).status == 405 and all(mrow(i) is not None for i in (a1, a2, b1, b2)))
     check("enable() is idempotent and creates no table: re-running it keeps every record", subprocess.run([os.path.expanduser("~/development/ost-prod/php80/bin/php"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin-admin.php"), os.path.expanduser("~/development/ost-sandbox/app"), "enable"], capture_output=True, text=True).stdout.startswith("enabled")
           and mcount() == n_before and OLDTAB == (sql("select table_name from information_schema.tables where table_schema=database() and table_name='ost_workflow_maintenance'") == ["ost_workflow_maintenance"]))
     # fixture state: list, equipment items, tickets and maintenance records are RETAINED INTENTIONALLY (records are never deleted by design)
-
-# ------------------------------------------------------------------ login throttling
-print("\n[login throttling per user + real IP]")
-nm = "e2e-nobody-" + U
-codes = [call("POST", "/auth/login", {"username": nm, "password": "x"}, key=None, headers={"X-Forwarded-For": "203.0.113.%d" % (int(U[:2], 16) % 200 + 1)}).status for _ in range(6)]
-check("5 failures lock that user+IP (6th is 429)", codes[:5] == [401] * 5 and codes[5] == 429, str(codes))
-other = call("POST", "/auth/login", {"username": nm + "-b", "password": "x"}, key=None, headers={"X-Forwarded-For": "203.0.113.%d" % (int(U[:2], 16) % 200 + 1)})
-check("another user from the same IP is not locked", other.status == 401)
 
 print("\nresult: %d passed, %d failed, %d skipped" % (passed, failed, skipped))
 sys.exit(1 if failed else 0)

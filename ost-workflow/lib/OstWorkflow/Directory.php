@@ -7,9 +7,8 @@ namespace OstWorkflow;
  * keeps that split so a stolen token of a normal agent cannot dump every customer:
  *
  *   - `user.dir` agents: browse, page and sync everything (as in the SCP).
- *   - everyone else: search answers are autocomplete-sized (LOOKUP_MAX, no pages, charged to the
- *     'lookup' budget) and a single contact/organization can be read only when it appears on a
- *     ticket the agent can see or the agent created it.
+ *   - everyone else: search answers are autocomplete-sized (LOOKUP_MAX, no pages) and *     'lookup' budget) and a single contact/organization can be read only when it appears on a
+ *     ticket the agent can see.
  */
 final class Directory {
     const LOOKUP_MAX = 10;
@@ -29,7 +28,6 @@ final class Directory {
     static function mayRead(\Staff $staff, $type, $id) {
         $id = (int) $id;
         return self::full($staff)
-            || Idempotency::owns($staff->getId(), $type, $id)
             || self::onVisibleTicket($staff, $type, $id);
     }
 
@@ -45,7 +43,7 @@ final class Directory {
         foreach (Ticketing::visible($staff)->filter($owner)->limit(1) as $_)
             return true;
         $who = $type === 'user' ? '= ' . $id : 'IN (SELECT id FROM ' . USER_TABLE . ' WHERE org_id=' . $id . ')';
-        $q = Store::q('SELECT DISTINCT th.object_id FROM ' . THREAD_COLLABORATOR_TABLE . ' c JOIN ' . THREAD_TABLE
+        $q = Db::q('SELECT DISTINCT th.object_id FROM ' . THREAD_COLLABORATOR_TABLE . ' c JOIN ' . THREAD_TABLE
             . ' th ON th.id=c.thread_id AND th.object_type=\'T\' WHERE c.user_id ' . $who . ' ORDER BY th.object_id DESC LIMIT 50');
         while ($q && ($r = db_fetch_array($q)))
             if (($t = \Ticket::lookup((int) $r['object_id'])) && $t->checkStaffPerm($staff))
@@ -66,7 +64,6 @@ final class Directory {
             throw ApiError::validation("'q' must have at least " . self::MIN_QUERY . ' characters', 'q');
         if ($req->q('cursor') !== null)
             throw ApiError::validation('Paging the directory needs user.dir; refine the search instead', 'cursor');
-        Throttle::hit($staff, 'lookup');
         return [min($limit, self::LOOKUP_MAX), false];
     }
 }

@@ -22,7 +22,7 @@ Diferencias conocidas respecto a producción: sin `intl` (PHP 8.0 no compila con
 | nginx actual: `/api/workflow/...` | 404 HTML (necesita la regla) |
 | nginx actual: cuerpo de 2 MB | 413 HTML de nginx; con la regla propuesta el plugin responde JSON `too_large` |
 | Bloqueo de login por usuario + IP real tras el proxy | correcto |
-| Reintento con la misma `Idempotency-Key` | 0 duplicados, `Idempotent-Replayed` |
+| Reintento de una nota de documento (misma uuid+versión) | 0 duplicados (se lee del hilo) |
 | Correo: `notify=none` / `notify=all` | 0 correos / correo al dueño y CC a colaboradores |
 | Cursor compuesto de sincronización | una nota nueva se detecta aunque `ticket.updated` no cambie |
 | Permisos con un agente de rol limitado | `403` con el permiso que falta |

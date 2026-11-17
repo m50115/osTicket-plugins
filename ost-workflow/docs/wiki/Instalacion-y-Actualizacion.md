@@ -15,17 +15,16 @@ Para un artefacto de despliegue use `prod-sandbox/build-artifact.sh`: estampa el
 
 ## 2. Instalar
 1. Copie el phar a `<osticket>/include/plugins/ost-workflow.phar`.
-2. Instale el plugin (`install_path` = `plugins/ost-workflow.phar`). Se crea **una sola fila** en la tabla de plugins y, al activarlo, la tabla `{prefijo}workflow_idempotency` (`CREATE TABLE IF NOT EXISTS`, repetible sin error).
+2. Instale el plugin (`install_path` = `plugins/ost-workflow.phar`). Se crea **una sola fila** en la tabla de plugins. **El plugin no crea ninguna tabla SQL propia** (ni al instalar ni al activar).
 3. Active el plugin y **cree y active una instancia** (el plugin es de instancia única). Configure en la instancia:
 
 | Opción | Descripción |
 |---|---|
-| Token signing secret | Mínimo 32 caracteres aleatorios. **Obligatorio**: sin él, el login responde `503 not_configured`. Independiente de `SECRET_SALT`; rotarlo revoca todos los tokens. |
+| Token signing secret | Mínimo 32 caracteres aleatorios. **Obligatorio**: sin él, el login responde `503 not_configured`. Independiente de `SECRET_SALT`; rotarlo invalida todos los tokens. |
 | Token lifetime (days) | Vida del token: **14 por defecto** (decisión de MSOLIS, 2026-09-28; línea base de guardarraíles). Una instancia que ya guardó otro valor (p. ej. 30) lo conserva hasta que se edite y guarde la configuración. |
-| Límites por hora y agente (`limit_mail_per_hour` 100, `limit_uploads_per_hour` 200, `limit_pdf_per_hour` 60, `limit_lookups_per_hour` 300) | Presupuestos que acotan lo que haría un token robado (correo a clientes, subidas, PDF, búsquedas de contactos sin acceso al directorio). `0` desactiva. Se guardan en la tabla del plugin; una instancia ya existente usa los valores por omisión hasta que se guarde la configuración. |
 | Default help topic / department | Valores por defecto para tickets nuevos. Vacío = el cliente debe enviarlos (422 si no). |
 | Max attachments / max file bytes | Límites del plugin; el efectivo es el más estricto entre estos y los de osTicket. |
-| Trusted proxy IPs / CIDRs | Proxies de confianza para leer `X-Forwarded-For` (bloqueo de login). Ponga las direcciones de su balanceador. |
+| Trusted proxy IPs / CIDRs | Proxies de confianza para leer `X-Forwarded-For` (IP del cliente registrada en las entradas). Ponga las direcciones de su balanceador. |
 | Enabled app modules, brand name/color | Los publica `GET /config`. |
 
 4. Compruebe: `GET /workflow/v1/ping` → `200 {"data":{"status":"ok"}}` y, con un token, `GET /workflow/v1/config` (revise `plugin_version` y `build_sha`).
@@ -45,4 +44,4 @@ No use la receta antigua "phar versionado junto al viejo + desactivar el viejo":
 Restaure el phar anterior en el mismo `install_path` (o la etiqueta de imagen anterior). Antes de cualquier cambio, respalde la tabla de plugins de osTicket.
 
 ## 6. Desinstalar
-Desinstalar el plugin elimina su fila y su configuración; **conserva** la tabla `{prefijo}workflow_idempotency` (puede borrarse a mano si ya no se usa) y **conserva siempre** la lista nativa de mantenimientos (datos de negocio no reconstruibles; no la borre) y la tabla retirada `{prefijo}workflow_maintenance` si una versión anterior la creó (ya no se usa tras la migración; su eliminación es una decisión aparte). El almacén de contratos (OW-REQ-71, `workflow_contract*`) fue retirado del plugin: ya no se crea; las tablas que haya dejado una instalación anterior no se tocan al actualizar y se eliminan a mano.
+Desinstalar el plugin elimina su fila y su configuración; **conserva** la tabla `{prefijo}workflow_idempotency` que dejó una versión anterior (el plugin ya no la crea ni la lee; puede borrarse a mano) y **conserva siempre** la lista nativa de mantenimientos (datos de negocio no reconstruibles; no la borre) y la tabla retirada `{prefijo}workflow_maintenance` si una versión anterior la creó (ya no se usa tras la migración; su eliminación es una decisión aparte). El almacén de contratos (OW-REQ-71, `workflow_contract*`) fue retirado del plugin: ya no se crea; las tablas que haya dejado una instalación anterior no se tocan al actualizar y se eliminan a mano.
