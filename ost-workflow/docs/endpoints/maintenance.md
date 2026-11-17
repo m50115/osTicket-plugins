@@ -87,7 +87,7 @@ Convention of the plugin (Tickets): the client sends `base`, the value it saw. S
 
 "Change Ticket" = `unlink` (with reason) then `link`. Link and unlink on a COMPLETED or CANCELLED record answer 409 `invalid_state` (the design makes CANCELLED read-only and keeps the evidence Ticket of a COMPLETED one; revert first).
 
-New failure modes of the native store (closed error catalog): `413 too_large` (`plan_full`, see Capacity) and, only under sustained contention on one equipment (16 lost swaps in a row), `409 locked` (`details.reason = busy`; retry with the same `Idempotency-Key`).
+New failure modes of the native store (closed error catalog): `413 too_large` (`plan_full`, see Capacity) and, only under sustained contention on one equipment (16 lost swaps in a row), `429 rate_limited` with `details.reason = busy` and `Retry-After: 2` (retry with the same `Idempotency-Key`; the 429 is never stored as the answer for the key, so the retry re-executes).
 
 ## Migration: `POST /maintenances/import` (one shot)
 
@@ -97,7 +97,8 @@ Procedure (`prod-sandbox/m8-migrate.py`, HTTP only, never the database): `export
 
 ## Known limits of the native store (residuals, see the review of 2026-11-16)
 
-- **Capacity per equipment (~396 records, all states, measured):** the plan row never shrinks (cancelled records and audit references stay). Once full, **every** write to that equipment, transitions included, answers `413 too_large plan_full` (checked before writing). Not reachable with today's data (max 118); an archive of closed records is the planned remedy.
+- **Capacity per equipment (~396 records, all states, measured):** the plan row never shrinks (cancelled records and audit references stay). Once full, a write that adds a record or grows the plan answers `413 too_large plan_full` (checked before writing); a transition that does not grow the plan can still succeed until the remaining space is gone. Not reachable with today's data (max 118); an archive of closed records is the planned remedy.
+- **First write of the store (crash window):** the first plan of an equipment is inserted before the registry is sealed by CAS; if the process dies between the two with an empty registry, every route answers `503 not_configured` until the orphan plan item (`BCW_PM|1 eq=…`) is removed from the store list from the database backup/administration. Do the migration (first real writer) supervised.
 - **Registry:** about 4 600 equipments per store list (`413 too_large registry_full` beyond, checked before writing).
 - **Cost:** an unfiltered feed page and each batch attempt read every plan of the store (O(store) per request; the retired table used indexes). Fine at today's size (55 plans); to be measured in the sandbox spike.
 - **Manual SCP edits of the store list: an administrative operation OUTSIDE the functional contract of M8.** Every M8 operation goes Flutter → M16 Outbox → this API; the SCP is used only once, to create the empty list (Preparation). Manipulating the native store by hand is not supported, and this is what it does (measured in sandbox 2 on a disposable list, 2026-11-16):
@@ -108,7 +109,7 @@ Procedure (`prod-sandbox/m8-migrate.py`, HTTP only, never the database): `export
   - **Prevention:** do not open, save or delete items of the store list; restrict *Admin › Manage › Lists* to the administrators who configured it.
 - **Same id under two equipments:** only two concurrent creates of one client id with different equipment (never the app). The later copy retracts itself when it sees the earlier one; if the earlier commits after that check, both stay stored but every reader resolves the id to the earlier copy (the other is never served and still holds its date slot).
 - **Feed window:** live writes are stamped with the database clock right before their journal and swap (milliseconds, vs microseconds for the table); an incremental reader could miss a record committed inside that window. The app walks the full feed and does not use `watermark`.
-- **Contract deltas:** under contention a lost swap is re-evaluated (it can answer 200 where the table answered 409 `base_mismatch` with null `current`/`base`); 16 lost swaps in a row answer `409 locked busy`; `413 too_large` is new.
+- **Contract deltas:** under contention a lost swap is re-evaluated (it can answer 200 where the table answered 409 `base_mismatch` with null `current`/`base`); 16 lost swaps in a row answer `429 rate_limited busy` (retryable); `413 too_large` is new.
 - **Import:** timestamps keep second precision (`.000000`): after the migration, clients must resync from scratch (a watermark issued by the table could skip records). The import switch must be emptied by hand after the migration.
 
 ## Tested

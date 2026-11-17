@@ -454,6 +454,9 @@ final class Maintenance {
     }
 
     static function busy() {
-        return new ApiError('locked', 'The maintenance plan is being changed by other requests; retry', null, ['reason' => 'busy']);
+        // 429 (not a final 409): the Pipeline does not store 5xx/429 as the answer for the key, so the retry with the same
+        // Idempotency-Key really re-executes; the client already treats it as server pacing (Retry-After, no budget).
+        return new ApiError('rate_limited', 'The maintenance plan is being changed by other requests; retry', null,
+            ['reason' => 'busy', 'retry_after' => 2], ['Retry-After' => '2']);
     }
 }

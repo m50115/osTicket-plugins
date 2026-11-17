@@ -403,6 +403,8 @@ $store->items[$pid]['raw'] = '[]';                // an administrator pressed Sa
 $r = run('index', req($ADMIN));
 check("damage: a plan rewritten outside the plugin -> 503 not_configured (never served as empty)", $r[0] === 503 && err($r) === 'not_configured', $r);
 $store->items[$pid]['raw'] = $saved;
+$busy = \OstWorkflow\Maintenance::busy();
+check("busy (16 lost swaps) is retryable: 429 rate_limited + Retry-After, never a stored 409", $busy->status() === 429 && $busy->errorCode === 'rate_limited' && ($busy->headers['Retry-After'] ?? '') === '2' && ($busy->details['reason'] ?? '') === 'busy', [$busy->status(), $busy->errorCode]);
 check("no route deletes: the engine never removes an item", count(array_filter($store->items, function ($i) { return $i['raw'] === null; })) === 0);
 
 echo "\nmaintenance-unit: $passed passed, $failed failed\n";
