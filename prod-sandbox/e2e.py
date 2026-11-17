@@ -364,6 +364,15 @@ check("oversize file -> typed too_large (or nginx 413)", rb.status == 413)
 print("\n[PDF needs text, recipients, SLA]")
 check("/config publishes the PDF text rule and search limits", cfg.data["limits"]["min_text_with_pdf"] >= 0 and cfg.data["search"]["min_length"] == 2)
 pdf = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Count 0/Kids[]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+
+def _a3id():
+    r = sql("select staff_id from ost_staff where username='agent3'")
+    return int(r[0]) if r else 3
+
+
+A3ID = _a3id()
+A2ID = int((sql("select staff_id from ost_staff where username='agent2'") or [2])[0])
+
 def upload_pdf():
     b_, c_ = multipart("file", "report-%s.pdf" % uuid.uuid4().hex[:6], pdf, "application/pdf")
     return call("POST", "/files", token=TOK, raw=b_, ctype=c_)
@@ -615,17 +624,17 @@ if m0 is None:
 else:
     et = call("POST", "/tickets", {"subject": "mail defaults %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK).data["id"]
     call("POST", "/tickets/%d/notes" % et, {"body": "internal, no alert"}, token=TOK)
-    call("POST", "/tickets/%d/assignment" % et, {"assignee": {"type": "staff", "id": 2}, "base": None}, token=TOK)
+    call("POST", "/tickets/%d/assignment" % et, {"assignee": {"type": "staff", "id": A2ID}, "base": None}, token=TOK)
     call("POST", "/tickets/%d/transfer" % et, {"dept_id": 2, "base": 1}, token=TOK)
     call("POST", "/tickets/%d/referrals" % et, {"target": "agent", "id": 2}, token=TOK)
     call("POST", "/tickets/%d/replies" % et, {"body": "public but notify none", "notify": "none"}, token=TOK)
     tk = call("POST", "/tickets/%d/tasks" % et, {"title": "mail defaults task", "description": "x"}, token=TOK).data["id"]
     call("POST", "/tasks/%d/notes" % tk, {"body": "task note"}, token=TOK)
-    call("POST", "/tasks/%d/assignment" % tk, {"assignee": {"type": "staff", "id": 2}, "base": None}, token=TOK)
+    call("POST", "/tasks/%d/assignment" % tk, {"assignee": {"type": "staff", "id": A2ID}, "base": None}, token=TOK)
     time.sleep(2)
     check("no e-mail from create, note, assignment, transfer, referral, notify-none reply, task, task note, task assignment", mail_count() == m0, "%s -> %s" % (m0, mail_count()))
     et2 = call("POST", "/tickets", {"subject": "mail control %s" % U, "message": "m", "topic_id": 1, "user_id": UID, "dept_id": 1}, token=TOK).data["id"]
-    call("POST", "/tickets/%d/assignment" % et2, {"assignee": {"type": "staff", "id": 2}, "base": None, "alert": True}, token=TOK)
+    call("POST", "/tickets/%d/assignment" % et2, {"assignee": {"type": "staff", "id": A2ID}, "base": None, "alert": True}, token=TOK)
     time.sleep(2)
     check("positive control: alert:true does send", (mail_count() or 0) > m0)
 
@@ -720,16 +729,16 @@ if TOK2:
     def unseed(staff, bucket):
         sql("delete from ost_workflow_idempotency where kind='throttle' and staff_id=%d and idem_key='th:%s:%s'" % (staff, bucket, hour))
     if sql("select 1") is not None:
-        seed(2, "lookup", 100000)
+        seed(A2ID, "lookup", 100000)
         r = call("GET", "/users?q=e2e", token=TOK2)
         check("budget: an agent without directory access is limited on lookups (429 + Retry-After)", r.status == 429 and "Retry-After" in r.headers and r.err == "rate_limited")
         check("budget: directory agents are not charged", call("GET", "/users?q=e2e", token=TOK).status == 200)
-        unseed(2, "lookup")
+        unseed(A2ID, "lookup")
         check("budget: the window frees the agent again", call("GET", "/users?q=e2e", token=TOK2).status == 200)
-        seed(2, "upload", 100000)
+        seed(A2ID, "upload", 100000)
         b_, c_ = multipart("file", "x-%s.txt" % U, b"x")
         check("budget: uploads", call("POST", "/files", token=TOK2, raw=b_, ctype=c_).status == 429)
-        unseed(2, "upload")
+        unseed(A2ID, "upload")
         seed(1, "pdf", 100000)
         check("budget: ticket PDFs", call("GET", "/tickets/%d/pdf" % TID, token=TOK).status == 429)
         unseed(1, "pdf")
@@ -766,7 +775,7 @@ if TOK3 and sql("select 1") is not None:
         check("PC-S2: nothing changed, and /sla does not offer those actions to that agent", x.data["plan"] is not None and x.data["is_overdue"] is True and x.meta["actions"]["disable"] is False and x.meta["actions"]["clear_overdue"] is False)
         r = call("POST", "/tickets/%d/sla" % ET, {"action": "extend", "hours": 2, "base": eb()}, token=TOK3)
         check("PC-S2: restart/extend/enable stay with ticket.edit (extend works for that agent)", r.status == 200 and r.data["applied"], r.raw[:120])
-        sql("update ost_department set manager_id=3 where id=1")
+        sql("update ost_department set manager_id=(select staff_id from ost_staff where username='agent3') where id=1")
         sql("update ost_ticket set est_duedate=DATE_SUB(NOW(), INTERVAL 3 HOUR), duedate=NULL, isoverdue=1 where ticket_id=%d" % ET)
         x = call("GET", "/tickets/%d/sla" % ET, token=TOK3)
         check("PC-S2: the department manager is offered both", x.meta["actions"]["disable"] is True and x.meta["actions"]["clear_overdue"] is True)
@@ -1188,6 +1197,7 @@ else:
     check("lists: 200 with data/meta envelope", r.status == 200 and isinstance(r.data, list) and "has_more" in r.meta and "next_cursor" in r.meta)
     check("lists: exact field allowlist; the fixture list is there with its item count (incl. retired) and no notes", L1 in mine and all(set(x) == LIST_KEYS for x in r.data) and mine[L1]["item_count"] == 4 and "SECRET-NOTE" not in r.raw, str(mine.get(L1)))
     cfgrow = sql("select concat(namespace, '\\t', value) from ost_config where namespace like 'plugin.%.instance.%' and `key`='installed_equipment_list_id' limit 1")
+    cfgrow = [c.replace('\\t', '\t') for c in (cfgrow or [])]   # the mysql batch client prints a tab as the two characters \t
     if cfgrow and '\t' in cfgrow[0]:
         cfgns, cfgvalue = cfgrow[0].split('\t', 1)
         expected_role = int(cfgvalue) if str(cfgvalue).isdigit() else 0
@@ -1440,7 +1450,7 @@ else:
     time.sleep(1.1)
     r = call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-15", "scheduled_date": "2025-03-28", "reason": "client asked"}, token=TOK3)
     check("reschedule: PLANNED, base = the date seen -> 200 applied, scheduled_date moves, audit entry kind=reschedule from/to/reason/by", r.status == 200 and r.meta["applied"] is True and r.data["scheduled_date"] == "2025-03-28"
-          and r.data["changes"][-1]["kind"] == "reschedule" and r.data["changes"][-1]["from"] == "2025-03-15" and r.data["changes"][-1]["to"] == "2025-03-28" and r.data["changes"][-1]["reason"] == "client asked" and r.data["changes"][-1]["by"] == 3 and r.data["updated_by"] == 3, r.raw[:300])
+          and r.data["changes"][-1]["kind"] == "reschedule" and r.data["changes"][-1]["from"] == "2025-03-15" and r.data["changes"][-1]["to"] == "2025-03-28" and r.data["changes"][-1]["reason"] == "client asked" and r.data["changes"][-1]["by"] == A3ID and r.data["updated_by"] == A3ID, r.raw[:300])
     f = call("GET", "/maintenances?cursor=" + urllib.parse.quote(wm), token=TOK)
     check("incremental feed: after a change, the watermark returns exactly that record", [x["id"] for x in f.data] == [a1] and f.meta["watermark"] != wm)
     r = call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-28", "scheduled_date": "2025-03-28", "reason": "retry"}, token=TOK3)
@@ -1508,7 +1518,7 @@ else:
     r = call("POST", "/maintenances/%s/complete" % b1, {"base": "CANCELLED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@1" % DU70}, token=TOK3)
     check("complete with a stale base -> 409", r.status == 409 and r.details["reason"] == "base_mismatch" and r.details["current"] == "PLANNED")
     r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@1" % DU70.upper()}, token=TOK3)
-    check("complete with a published document of the linked Ticket -> 200 COMPLETED, completed_on/by, evidence_ref (normalized), audit", r.status == 200 and r.data["stored_status"] == "COMPLETED" and r.data["completed_on"] == "2025-03-16" and r.data["completed_by"] == 3
+    check("complete with a published document of the linked Ticket -> 200 COMPLETED, completed_on/by, evidence_ref (normalized), audit", r.status == 200 and r.data["stored_status"] == "COMPLETED" and r.data["completed_on"] == "2025-03-16" and r.data["completed_by"] == A3ID
           and r.data["evidence_ref"] == "doc:%s@1" % DU70 and r.data["changes"][-1]["kind"] == "complete", r.raw[:300])
     r = call("POST", "/maintenances/%s/complete" % b1, {"base": "PLANNED", "completed_on": "2025-03-16", "evidence_ref": "doc:%s@1" % DU70}, token=TOK3)
     check("complete again with the same data -> 200 applied=false", r.status == 200 and r.meta["applied"] is False)
@@ -1544,7 +1554,7 @@ else:
           and call("POST", "/maintenances/%s/link" % b2, {"base": None, "ticket_id": T1}, token=TOK).status == 409)
     r = call("POST", "/maintenances/batch", {"items": [{"id": mid(), "equipment_id": EB, "scheduled_date": "2025-09-15"}]}, token=TOK)
     check("uniqueness ignores CANCELLED: the same (equipment, date) can be created again after the cancel", r.status == 200 and r.data[0]["result"] == "created", r.raw[:200])
-    sql("update ost_department set manager_id=3 where id=3")          # agent3 manages ANOTHER department (its own is dept 1)
+    sql("update ost_department set manager_id=(select staff_id from ost_staff where username='agent3') where id=3")          # agent3 manages ANOTHER department (its own is dept 1)
     try:
         r = call("POST", "/maintenances/%s/revert" % a2, {"base": "COMPLETED"}, token=TOK3)
         check("revert without a reason -> 422", r.status == 422)
@@ -1554,8 +1564,8 @@ else:
         c = r.data["changes"][-1] if r.data else {}
         check("revert by a manager of ANY department -> 200 PLANNED; scheduled_date and ticket_id unchanged; completion fields cleared", r.status == 200 and r.data["stored_status"] == "PLANNED" and r.data["scheduled_date"] == "2025-06-15"
               and r.data["completed_on"] is None and r.data["completed_by"] is None and r.data["completion_note"] is None and r.data["evidence_ref"] is None, r.raw[:300])
-        check("revert: the previous completion values, reason, by and at are kept in changes[] (kind=revert)", c.get("kind") == "revert" and c["reason"] == "completed by mistake" and c["by"] == 3 and c["from"]["completed_on"] == "2025-06-16"
-              and c["from"]["completion_note"] == "done, documented elsewhere" and c["from"]["completed_by"] == 3 and c["to"] == {"stored_status": "PLANNED"} and c["at"].endswith("Z"), str(c))
+        check("revert: the previous completion values, reason, by and at are kept in changes[] (kind=revert)", c.get("kind") == "revert" and c["reason"] == "completed by mistake" and c["by"] == A3ID and c["from"]["completed_on"] == "2025-06-16"
+              and c["from"]["completion_note"] == "done, documented elsewhere" and c["from"]["completed_by"] == A3ID and c["to"] == {"stored_status": "PLANNED"} and c["at"].endswith("Z"), str(c))
         check("revert again -> 200 applied=false (already PLANNED)", call("POST", "/maintenances/%s/revert" % a2, {"base": "COMPLETED", "reason": "again"}, token=TOK3).meta.get("applied") is False)
         r = call("POST", "/maintenances/%s/cancel" % a2, {"base": "PLANNED", "reason": "manager cancels"}, token=TOK3)
         check("cancel by a manager of any department -> 200", r.status == 200 and r.data["stored_status"] == "CANCELLED")
@@ -1612,7 +1622,7 @@ else:
 
     # ---- durability: native store, no purge, no delete, no table ----------------------------------------------------------
     reg = sql("select configuration from ost_list where id=%d" % MSTORE)
-    check("store: the dedicated list's configuration is the registry (BCW_PMREG|1) and the list stays a custom list", bool(reg) and reg[0].startswith('{"bcw":"BCW_PMREG|1"') and sql("select ifnull(type,'') from ost_list where id=%d" % MSTORE) == [""], str(reg)[:120])
+    check("store: the dedicated list's configuration is the registry (BCW_PMREG|1) and the list stays a custom list", bool(reg) and reg[0].startswith('{"bcw":"BCW_PMREG|1"') and sql("select ifnull(type,'') from ost_list where id=%d" % MSTORE) in ([""], []), str(reg)[:120])
     check("store: every item of the store list is internal and never enabled (no form dropdown offers it)", sql("select count(*) from ost_list_items where list_id=%d and status<>2" % MSTORE) == ["0"])
     check("store: the store list is not a catalog (absent from /lists, 404 on its items)", all(x["id"] != MSTORE for x in call("GET", "/lists?limit=500", token=TOK).data) and call("GET", "/lists/%d/items" % MSTORE, token=TOK).status == 404)
     check("no plugin table is written: the retired table (if it still exists) is untouched", (not OLDTAB) or sql("select count(*) from ost_workflow_maintenance") == OLDCOUNT)

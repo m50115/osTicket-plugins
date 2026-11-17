@@ -3,7 +3,8 @@
  * Creates (or re-keys) a SANDBOX agent for the ost-workflow e2e suite and writes its credentials to a local env file.
  *
  *   php create-agent.php <username> <role_id> [--dept=1] [--app=<osticket dir>] [--out=<file.env>]
- *                        [--reset-password] [--2fa=email]
+ *                        [--reset-password] [--2fa=email] [--admin]
+ *   --admin creates an administrator (Staff isadmin=1), e.g. the reference sandbox's maintenance manager account `bcwmgr`.
  *
  *   e2e fixtures (see prod-sandbox/E2E-Fixtures.md):  agent2 = role 3 (Limited Access), agent3 = role 2 (Expanded Access), dept 1
  *
@@ -45,7 +46,7 @@ $errors = [];
 if (!$id) {
     $vars = ['id' => null, 'username' => $username, 'firstname' => 'Agent', 'lastname' => ucfirst($username),
         'email' => $username . '@example.com', 'dept_id' => $deptId, 'role_id' => (int) $roleId,
-        'islocked' => '1', 'isvisible' => '1', 'passwd1' => $pass, 'passwd2' => $pass, 'perms' => []];
+        'islocked' => '1', 'isvisible' => '1', 'isadmin' => isset($opt['admin']) ? 1 : 0, 'passwd1' => $pass, 'passwd2' => $pass, 'perms' => []];
     $s = Staff::create();   // no vars: the model would take passwd1/islocked… as columns (DB error 1054); update() maps them
 
     if (!$s->update($vars, $errors)) {
