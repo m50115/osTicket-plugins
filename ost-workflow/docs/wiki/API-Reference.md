@@ -1,6 +1,6 @@
 # Referencia de la API
 
-Índice de las **134 rutas** de `/workflow/v1`, incluyendo la excepción W2 autorizada `GET /lists/roles`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
+Índice de las **117 rutas** de `/workflow/v1`, incluyendo la excepción W2 autorizada `GET /lists/roles`, generado a partir de la tabla de rutas real del plugin (también en formato máquina: [`openapi.json`](../openapi.json)). El detalle de cada ruta (cuerpo, respuesta, errores, efectos) está en los documentos enlazados de cada sección. Las convenciones comunes están en [Convenciones.md](Convenciones.md).
 
 La columna **Permiso** es el nombre de la política que el plugin aplica *antes* del handler (réplica de la matriz del panel de agentes de osTicket): `auth` = cualquier agente activo; `ticket.<x>` / `task.<x>` = permiso de rol en el departamento del objeto; `global.<x>` = permiso global del agente; `anydept.<x>` = permiso en al menos un departamento.
 
@@ -76,30 +76,6 @@ OW-REQ-70 (delta D-22 autorizado el 2026-10-04): tabla propia, sin borrado. Deta
 | `POST` | `/workflow/v1/maintenances/{uuid}/reschedule` | `anydept.ticket.create` |
 | `POST` | `/workflow/v1/maintenances/{uuid}/revert` | `maintenance.manager` |
 | `POST` | `/workflow/v1/maintenances/{uuid}/unlink` | `anydept.ticket.create` |
-
-## Contratos (almacén propio)
-
-OW-REQ-71 (delta D-22 autorizado el 2026-10-04): tablas propias, sin borrado; incluye las bases de decisión por Ticket. Detalle: [contracts.md](../endpoints/contracts.md)
-
-| Método | Ruta | Permiso |
-|---|---|---|
-| `GET` | `/workflow/v1/contracts` | `auth` |
-| `POST` | `/workflow/v1/contracts` | `contract.manager` |
-| `GET` | `/workflow/v1/contracts/catalogs` | `auth` |
-| `POST` | `/workflow/v1/contracts/catalogs` | `contract.manager` |
-| `GET` | `/workflow/v1/contracts/entitlement` | `auth` |
-| `GET` | `/workflow/v1/contracts/{uuid}` | `contract.read` |
-| `PATCH` | `/workflow/v1/contracts/{uuid}` | `contract.manager` |
-| `POST` | `/workflow/v1/contracts/{uuid}/activate` | `contract.manager` |
-| `GET` | `/workflow/v1/contracts/{uuid}/documents/{doc_uuid}/file` | `contract.manager` |
-| `PUT` | `/workflow/v1/contracts/{uuid}/draft` | `contract.manager` |
-| `POST` | `/workflow/v1/contracts/{uuid}/draft/discard` | `contract.manager` |
-| `GET` | `/workflow/v1/contracts/{uuid}/events` | `contract.read` |
-| `PUT` | `/workflow/v1/contracts/{uuid}/termination` | `contract.manager` |
-| `POST` | `/workflow/v1/contracts/{uuid}/versions/{version_uuid}/documents` | `contract.manager` |
-| `POST` | `/workflow/v1/contracts/{uuid}/versions/{version_uuid}/void` | `contract.manager` |
-| `GET` | `/workflow/v1/tickets/{id}/entitlement-bases` | `ticket.view` |
-| `POST` | `/workflow/v1/tickets/{id}/entitlement-bases` | `ticket.edit` |
 
 ## Tickets
 
