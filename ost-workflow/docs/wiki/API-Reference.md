@@ -61,9 +61,9 @@ OW-REQ-63 (delta D-22 autorizado el 2026-10-04). Detalle: [lists.md](../endpoint
 | `GET` | `/workflow/v1/lists/roles` | `auth` |
 | `GET` | `/workflow/v1/lists/{id}/items` | `auth` |
 
-## Mantenimientos programados (almacén propio)
+## Mantenimientos programados (Custom List nativa)
 
-OW-REQ-70 (delta D-22 autorizado el 2026-10-04): tabla propia, sin borrado. Detalle: [maintenance.md](../endpoints/maintenance.md)
+OW-REQ-70: almacén en una Custom List nativa dedicada (sin tabla del plugin), sin borrado. `POST /maintenances/import` solo para la migración única desde la tabla retirada (administrador + ajuste `maintenance_import_enabled`). Detalle: [maintenance.md](../endpoints/maintenance.md)
 
 | Método | Ruta | Permiso |
 |---|---|---|

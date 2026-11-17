@@ -1108,7 +1108,17 @@
    "reversible": "partial (no delete; cancel is manager-only)",
    "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
    "recommendation": "KEEP",
-   "abuse": "anydept.ticket.create. Max 200 items; each id inserted at most once (client uuid) and (equipment, date) unique among non-cancelled; equipment must be an ENABLED item of the configured Installed Equipment list. Worst case: junk PLANNED rows that a manager cancels."
+   "abuse": "anydept.ticket.create. Max 200 items; each id inserted at most once (client uuid) and (equipment, date) unique among non-cancelled; equipment must be an ENABLED item of the configured Installed Equipment list. Worst case: junk PLANNED records that a manager cancels."
+  },
+  "POST /maintenances/import": {
+   "category": "SYSTEM_ADMINISTRATION",
+   "rw": "W",
+   "consumer": "Preventive Maintenance (module 8, OW-REQ-70): one-shot migration of the retired table",
+   "impact": "HIGH_IMPACT_UPDATE",
+   "reversible": "partial (no delete; a wrong import is corrected with the normal transitions)",
+   "necessity": "REQUIRED_BY_DESIGNED_CONSUMER",
+   "recommendation": "KEEP",
+   "abuse": "Administrator only AND plugin setting maintenance_import_enabled (403 otherwise; empty by default, emptied again after the migration). Stores records verbatim (ids, dates, staff ids, audit) without re-validating equipment or evidence: while the switch is on an administrator could write forged history. Max 200 items; per-item idempotent by id (identical -> exists, different -> rejected mismatch); (equipment, date) uniqueness still enforced; nothing is deleted."
   },
   "POST /maintenances/{uuid}/reschedule": {
    "category": "FIELD_OPERATION",

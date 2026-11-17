@@ -2,7 +2,7 @@
 
 > Generado por `prod-sandbox/gen-route-matrix.py` a partir de `docs/openapi.json` (tabla real de rutas) y `docs/security/route-classification.json` (única fuente editable). No editar a mano.
 
-**117 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
+**118 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
 
 ## Por impacto
 
@@ -12,13 +12,13 @@
 | REVERSIBLE_UPDATE | 23 |
 | SECURITY_SENSITIVE | 18 |
 | APPEND_ONLY | 9 |
-| HIGH_IMPACT_UPDATE | 7 |
+| HIGH_IMPACT_UPDATE | 8 |
 
 ## Por necesidad
 
 | Valor | Rutas |
 |---|---|
-| REQUIRED_BY_DESIGNED_CONSUMER | 93 |
+| REQUIRED_BY_DESIGNED_CONSUMER | 94 |
 | REQUIRED_BY_CORE_WORKFLOW | 15 |
 | NO_CONSUMER_YET | 5 |
 | USEFUL_BUT_NOT_REQUIRED | 4 |
@@ -29,13 +29,13 @@
 |---|---|
 | FIELD_OPERATION | 69 |
 | WORKFLOW_OPERATION | 34 |
-| SYSTEM_ADMINISTRATION | 14 |
+| SYSTEM_ADMINISTRATION | 15 |
 
 ## Por recomendación
 
 | Valor | Rutas |
 |---|---|
-| KEEP | 117 |
+| KEEP | 118 |
 
 ## Rutas retiradas de la superficie pública (2026-09-28)
 
@@ -77,7 +77,8 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 | `GET /lists/roles` | R | `auth` | M7 Equipment / Installed Base | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Authenticated agents receive only the installation-scoped configured role identity; no list enumeration, names, configuration or secrets. Missing/invalid configuration returns 503 not_configured. | KEEP |
 | `GET /lists/{id}/items` | R | `auth` | custom lists catalogs: equipment (modules 7, 8), Service Orders FE.4, Quotes catalog, ticket field Equipo (OW-REQ-63) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same exposure as /lists; `q` 2-100 chars (core search predicate); retired items only with include_disabled=1; properties by logical name; version = hash of the whole list. No writes. | KEEP |
 | `GET /maintenances` | R | `auth` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Any logged-in agent reads every maintenance (no customer data, no secrets; equipment ids and dates only). Incremental cursor by (updated_at, id); limit<=200; filters equipment_id / ticket_id. | KEEP |
-| `POST /maintenances/batch` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | partial (no delete; cancel is manager-only) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create. Max 200 items; each id inserted at most once (client uuid) and (equipment, date) unique among non-cancelled; equipment must be an ENABLED item of the configured Installed Equipment list. Worst case: junk PLANNED rows that a manager cancels. | KEEP |
+| `POST /maintenances/batch` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | partial (no delete; cancel is manager-only) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create. Max 200 items; each id inserted at most once (client uuid) and (equipment, date) unique among non-cancelled; equipment must be an ENABLED item of the configured Installed Equipment list. Worst case: junk PLANNED records that a manager cancels. | KEEP |
+| `POST /maintenances/import` | W | `maintenance.import` | Preventive Maintenance (module 8, OW-REQ-70): one-shot migration of the retired table | SYSTEM_ADMINISTRATION | HIGH_IMPACT_UPDATE | partial (no delete; a wrong import is corrected with the normal transitions) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator only AND plugin setting maintenance_import_enabled (403 otherwise; empty by default, emptied again after the migration). Stores records verbatim (ids, dates, staff ids, audit) without re-validating equipment or evidence: while the switch is on an administrator could write forged history. Max 200 items; per-item idempotent by id (identical -> exists, different -> rejected mismatch); (equipment, date) uniqueness still enforced; nothing is deleted. | KEEP |
 | `GET /maintenances/{uuid}` | R | `auth` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_DESIGNED_CONSUMER | Same exposure as the list; 404 for an unknown id. | KEEP |
 | `POST /maintenances/{uuid}/cancel` | W | `maintenance.manager` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | HIGH_IMPACT_UPDATE | partial (no delete; a cancelled record is never re-opened: a new one is created) | REQUIRED_BY_DESIGNED_CONSUMER | Administrator or manager of ANY department only; PLANNED only; mandatory reason; the row is kept with its audit; base = status seen. | KEEP |
 | `POST /maintenances/{uuid}/complete` | W | `anydept.ticket.create` | Preventive Maintenance (module 8, OW-REQ-70) | FIELD_OPERATION | REVERSIBLE_UPDATE | yes (manager revert; values kept in changes[]) | REQUIRED_BY_DESIGNED_CONSUMER | anydept.ticket.create; PLANNED only; completed_on never in the future; evidence_ref must be a published document of the linked Ticket or a completion_note is required; base = status seen. | KEEP |
