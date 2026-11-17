@@ -1,7 +1,8 @@
 <?php
 // Usage: php purge-check.php <app_dir>   (SANDBOX ONLY)
 // Runs the plugin's cron handler (OstWorkflowPlugin::purgeExpired -> Store::purge(true)) once, the way osTicket's cron does,
-// so e2e.py can prove the idempotency purge never touches the ScheduledMaintenance table (OW-REQ-70, MUST V1 point 1).
+// so e2e.py can prove the idempotency purge never touches the ScheduledMaintenance store (OW-REQ-70, MUST V1 point 1;
+// a native Custom List since the M8 SQL->native change).
 $app = $argv[1] ?? '';
 if (!is_dir($app)) { fwrite(STDERR, "usage: php purge-check.php <app_dir>\n"); exit(2); }
 chdir($app . '/api');

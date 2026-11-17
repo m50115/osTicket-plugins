@@ -556,7 +556,7 @@ else:
 
 # ------------------------------------------------------------------ hardening (2026-09-28)
 print("\n[hardening: frozen surface, removed routes, mass assignment, directory, cross-department, budgets]")
-FROZEN_ROUTES = 134   # 133 existing routes + the approved read-only semantic list-role resolver for M7
+FROZEN_ROUTES = 118   # 117 after M10 F5 retired /contracts* (67931c0) + POST /maintenances/import (M8 native store, one-shot migration)
 oa = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ost-workflow", "docs", "openapi.json")))
 ops = [(m.upper(), p) for p, v in oa["paths"].items() for m in v if m in ("get", "post", "put", "patch", "delete")]
 check("frozen surface: %d routes in the OpenAPI generated from the route table" % FROZEN_ROUTES, len(ops) == FROZEN_ROUTES, "found %d" % len(ops))
@@ -1316,17 +1316,23 @@ else:
     check("reading ids writes nothing (answers unchanged)", sql("select count(*), coalesce(sum(crc32(concat(entry_id,'|',field_id,'|',ifnull(value,''),'|',ifnull(value_id,'')))),0) from ost_form_entry_values") == n0)
     # fixture state: RETAINED INTENTIONALLY (list, form, topic; tickets cannot be deleted through the API)
 
-# ------------------------------------------------------------------ ScheduledMaintenance store (OW-REQ-70, 2026-10-04)
-print("\n[maintenances: durable ScheduledMaintenance store (OW-REQ-70)]")
+# ------------------------------------------------------------------ ScheduledMaintenance store (OW-REQ-70; native Custom List since M8 SQL->native)
+print("\n[maintenances: ScheduledMaintenance store on a native Custom List (OW-REQ-70, no plugin table)]")
 LM_ = "[BCWF TEST] e2e-ow70 Installed"      # persistent get-or-create list; its items are per-run (equipment ids are the isolation)
 if sql("select 1") is None or not TOK3 or not TOK2:
     skip("maintenances", "needs DB access and agent2/agent3 (E2E-Fixtures.md)")
+elif not sql("select value from ost_config where namespace like 'plugin.%.instance.%' and `key`='maintenance_list_id' and value regexp '^[0-9]+$' limit 1"):
+    skip("maintenances", "the store list is not prepared (plugin setting maintenance_list_id; docs/endpoints/maintenance.md)")
 else:
     def m_one(q):
         r = sql(q)
         return int(r[0]) if r and r[0] not in ("", "NULL") else None
 
-    MTAB = "ost_workflow_maintenance"
+    # Native store: the dedicated list named by the plugin setting maintenance_list_id (prepared in the SCP, see
+    # docs/endpoints/maintenance.md). Read-only lookups here; the suite never creates or edits the store list itself.
+    MSTORE = m_one("select value from ost_config where namespace like 'plugin.%.instance.%' and `key`='maintenance_list_id' and value regexp '^[0-9]+$' limit 1")
+    OLDTAB = sql("select table_name from information_schema.tables where table_schema=database() and table_name='ost_workflow_maintenance'") == ["ost_workflow_maintenance"]
+    OLDCOUNT = sql("select count(*) from ost_workflow_maintenance") if OLDTAB else None
     LMID = m_one("select id from ost_list where name='%s'" % LM_)
     if not LMID:
         sql("insert into ost_list (name,name_plural,sort_mode,masks,type,notes,created,updated) values ('%s','%s','Alpha',0,NULL,NULL,NOW(),NOW())" % (LM_, LM_))
@@ -1336,6 +1342,7 @@ else:
     OTHER = m_one("select id from ost_list_items where list_id is not null and list_id<>%d limit 1" % LMID)     # an item of another custom list
     CFGNS = (sql("select distinct namespace from ost_config where namespace like 'plugin.%.instance.%' and `key`='signing_secret' limit 1") or [None])[0]
     check("fixtures: three equipment items (2 enabled, 1 retired) and an item of another list", all([EA, EB, ER, OTHER]) and CFGNS, str((EA, EB, ER, OTHER, CFGNS)))
+    check("preparation: the plugin setting maintenance_list_id names the dedicated store list (docs/endpoints/maintenance.md)", bool(MSTORE) and MSTORE != LMID, str(MSTORE))
 
     def m_setting(val):
         sql("delete from ost_config where namespace='%s' and `key`='installed_equipment_list_id'" % CFGNS)
@@ -1351,11 +1358,22 @@ else:
         return str(uuid.uuid4())
 
     def mrow(i):
-        x = sql("select stored_status,scheduled_date,ifnull(ticket_id,''),ifnull(completed_on,''),ifnull(evidence_ref,''),rev from %s where id='%s'" % (MTAB, i))
-        return x[0].split("\t") if x else None
+        # through the API (no table any more): [status, date, ticket or '', completed_on or '', evidence or '', audit entries]
+        x = call("GET", "/maintenances/%s" % i, token=TOK)
+        if x.status != 200:
+            return None
+        d = x.data
+        return [d["stored_status"], d["scheduled_date"], str(d["ticket_id"] or ""), d["completed_on"] or "", d["evidence_ref"] or "", len(d["changes"])]
 
     def mcount():
-        return int(sql("select count(*) from %s" % MTAB)[0])
+        n = 0; cur = None
+        for _ in range(4000):
+            pg = call("GET", "/maintenances?limit=200" + ("&cursor=" + urllib.parse.quote(cur) if cur else ""), token=TOK)
+            n += len(pg.data)
+            if not pg.meta["has_more"]:
+                return n
+            cur = pg.meta["next_cursor"]
+        return n
 
     # ---- create: batch, per-item result, validation ------------------------------------------------------------
     a1, a2, b1, dup, rt, oth, nf, bd, bi = (mid() for _ in range(9))
@@ -1438,7 +1456,7 @@ else:
     r = call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2025-03-28", "scheduled_date": "2020-01-05", "reason": "past is allowed"}, token=TOK)
     check("reschedule into the past is allowed (it becomes overdue on the client)", r.status == 200 and r.data["scheduled_date"] == "2020-01-05")
     call("POST", "/maintenances/%s/reschedule" % a1, {"base": "2020-01-05", "scheduled_date": "2025-03-28", "reason": "back"}, token=TOK)
-    check("reschedule: concurrent compare-and-swap - rev bumps on each change (no lost update)", int(mrow(a1)[5]) == 4)
+    check("reschedule: compare-and-swap - one audit entry per applied change (no lost update)", mrow(a1)[5] == 4)
     r = call("POST", "/maintenances/%s/reschedule" % mid(), {"base": "2025-03-28", "scheduled_date": "2025-04-02", "reason": "x"}, token=TOK)
     check("reschedule an unknown id -> 404", r.status == 404)
 
@@ -1555,10 +1573,49 @@ else:
     check("...but existing ones can still be completed (the work happened)", r.status == 200 and r.data["stored_status"] == "COMPLETED")
     sql("update ost_list_items set status=1 where id=%d" % EB)
 
-    # ---- durability: table, no purge, no delete ----------------------------------------------------------------------
-    meta = sql("select table_name from information_schema.tables where table_schema=database() and table_name='%s'" % MTAB)
-    check("table exists, separate from the idempotency table, with the schema_version column", meta == [MTAB] and sql("select count(*) from information_schema.columns where table_schema=database() and table_name='%s' and column_name='schema_version'" % MTAB) == ["1"])
-    check("every row carries schema_version=1", sql("select count(*) from %s where schema_version<>1" % MTAB) == ["0"])
+    # ---- concurrency on the real database: the plan row is the atomic unit -------------------------------------------
+    import threading
+    def par(fns):
+        out = [None] * len(fns)
+        def run(k):
+            out[k] = fns[k]()
+        ts = [threading.Thread(target=run, args=(k,)) for k in range(len(fns))]
+        [t.start() for t in ts]; [t.join() for t in ts]
+        return out
+    racers = [mid() for _ in range(8)]
+    rr = par([(lambda u: (lambda: call("POST", "/maintenances/batch", {"items": [{"id": u, "equipment_id": EA, "scheduled_date": "2026-02-02"}]}, token=TOK)))(u) for u in racers])
+    won = [x.data[0]["id"] for x in rr if x.status == 200 and x.data[0]["result"] == "created"]
+    lost = [x.data[0] for x in rr if x.status == 200 and x.data[0]["result"] == "rejected"]
+    check("race: 8 parallel creates of the same (equipment, date) -> exactly one created, 7 rejected duplicate naming it", len(won) == 1 and len(lost) == 7 and all(l["code"] == "duplicate" and l["details"]["existing_id"] == won[0] for l in lost), str([(x.status, x.raw[:120]) for x in rr]))
+    peers = [mid() for _ in range(6)]
+    call("POST", "/maintenances/batch", {"items": [{"id": u, "equipment_id": EA, "scheduled_date": "2026-03-%02d" % (k + 1)} for k, u in enumerate(peers)]}, token=TOK)
+    rr = par([(lambda k, u: (lambda: call("POST", "/maintenances/%s/reschedule" % u, {"base": "2026-03-%02d" % (k + 1), "scheduled_date": "2026-04-%02d" % (k + 1), "reason": "parallel"}, token=TOK)))(k, u) for k, u in enumerate(peers)])
+    check("race: 6 parallel reschedules of different records of ONE equipment -> all applied, none lost", all(x.status == 200 and x.meta["applied"] is True for x in rr) and all(mrow(u)[1] == "2026-04-%02d" % (k + 1) for k, u in enumerate(peers)), str([(x.status, x.raw[:120]) for x in rr]))
+    rr = par([(lambda d: (lambda: call("POST", "/maintenances/%s/reschedule" % peers[0], {"base": "2026-04-01", "scheduled_date": d, "reason": "same record"}, token=TOK)))(d) for d in ("2026-05-01", "2026-05-02", "2026-05-03")])
+    check("race: 3 parallel reschedules of the SAME record from the same base -> one applied, the others 409 base_mismatch", sorted(x.status for x in rr) == [200, 409, 409] and all(x.details["reason"] == "base_mismatch" for x in rr if x.status == 409) and mrow(peers[0])[5] == 3, str([(x.status, x.raw[:120]) for x in rr]))
+
+    # ---- import (one-shot migration of the retired table) --------------------------------------------------------------
+    imp = dict(call("GET", "/maintenances/%s" % a2, token=TOK).data)
+    imp["id"] = mid(); imp["equipment_id"] = EB; imp["scheduled_date"] = "2019-12-31"
+    r = call("POST", "/maintenances/import", {"items": [imp]}, token=TOK)
+    check("import: off by default -> 403 import_disabled", r.status == 403 and r.details.get("reason") == "import_disabled", r.raw[:160])
+    sql("insert into ost_config (namespace,`key`,value,updated) values ('%s','maintenance_import_enabled','1',NOW())" % CFGNS)
+    try:
+        r = call("POST", "/maintenances/import", {"items": [imp]}, token=TOK3)
+        check("import: an agent (not administrator) -> 403 admin_required", r.status == 403 and r.details.get("reason") == "admin_required", r.raw[:160])
+        r = call("POST", "/maintenances/import", {"items": [imp]}, token=TOK)
+        check("import: verbatim record created and served byte-for-byte (ids, dates, staff, audit)", r.status == 200 and r.data[0]["result"] == "created" and call("GET", "/maintenances/%s" % imp["id"], token=TOK).data == imp, r.raw[:300])
+        r = call("POST", "/maintenances/import", {"items": [imp, dict(imp, cancel_reason="other")]}, token=TOK)
+        check("import: identical again -> exists; different -> rejected mismatch", [x["result"] for x in r.data] == ["exists", "rejected"] and r.data[1]["code"] == "mismatch", r.raw[:300])
+    finally:
+        sql("delete from ost_config where namespace='%s' and `key`='maintenance_import_enabled'" % CFGNS)
+
+    # ---- durability: native store, no purge, no delete, no table ----------------------------------------------------------
+    reg = sql("select configuration from ost_list where id=%d" % MSTORE)
+    check("store: the dedicated list's configuration is the registry (BCW_PMREG|1) and the list stays a custom list", bool(reg) and reg[0].startswith('{"bcw":"BCW_PMREG|1"') and sql("select ifnull(type,'') from ost_list where id=%d" % MSTORE) == [""], str(reg)[:120])
+    check("store: every item of the store list is internal and never enabled (no form dropdown offers it)", sql("select count(*) from ost_list_items where list_id=%d and status<>2" % MSTORE) == ["0"])
+    check("store: the store list is not a catalog (absent from /lists, 404 on its items)", all(x["id"] != MSTORE for x in call("GET", "/lists?limit=500", token=TOK).data) and call("GET", "/lists/%d/items" % MSTORE, token=TOK).status == 404)
+    check("no plugin table is written: the retired table (if it still exists) is untouched", (not OLDTAB) or sql("select count(*) from ost_workflow_maintenance") == OLDCOUNT)
     n_before = mcount()
     sql("update ost_workflow_idempotency set expires=DATE_SUB(NOW(), INTERVAL 1 DAY) where idem_key='%s'" % KEY)
     check("durability setup: the batch's idempotency record is now expired", sql("select count(*) from ost_workflow_idempotency where idem_key='%s' and expires<NOW()" % KEY) == ["1"])
@@ -1568,9 +1625,9 @@ else:
     check("replaying the purged key is a fresh request, and the per-item ids still make it idempotent (no duplicates)", [x["result"] for x in call("POST", "/maintenances/batch", {"items": items[:3]}, token=TOK, key=KEY).data] == ["exists"] * 3 and mcount() == n_before)
     check("no hard delete: no maintenance route uses DELETE (405) and every id created in this run is still stored",
           call("DELETE", "/maintenances/%s" % a1, token=TOK).status == 405 and all(mrow(i) is not None for i in (a1, a2, b1, b2)))
-    check("enable() is idempotent: re-running it keeps the table and its rows", subprocess.run([os.path.expanduser("~/development/ost-prod/php80/bin/php"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin-admin.php"), os.path.expanduser("~/development/ost-sandbox/app"), "enable"], capture_output=True, text=True).stdout.startswith("enabled")
-          and mcount() == n_before)
-    # fixture state: list, equipment items, tickets and maintenance rows are RETAINED INTENTIONALLY (rows are never deleted by design)
+    check("enable() is idempotent and creates no table: re-running it keeps every record", subprocess.run([os.path.expanduser("~/development/ost-prod/php80/bin/php"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin-admin.php"), os.path.expanduser("~/development/ost-sandbox/app"), "enable"], capture_output=True, text=True).stdout.startswith("enabled")
+          and mcount() == n_before and OLDTAB == (sql("select table_name from information_schema.tables where table_schema=database() and table_name='ost_workflow_maintenance'") == ["ost_workflow_maintenance"]))
+    # fixture state: list, equipment items, tickets and maintenance records are RETAINED INTENTIONALLY (records are never deleted by design)
 
 # ------------------------------------------------------------------ login throttling
 print("\n[login throttling per user + real IP]")
