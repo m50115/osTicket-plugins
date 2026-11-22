@@ -163,6 +163,17 @@ check("login returns a token", bool(TOK))
 r = call("POST", "/auth/login", {"username": ADMIN[0], "password": "wrong-" + U}, key=None)
 check("bad password is 401", r.status == 401 and r.err == "unauthorized")
 check("login needs username and password", call("POST", "/auth/login", {"username": "x"}, key=None).status == 422)
+# Login lockout (LoginGuard): the core's native strikes, persisted for the stateless API. Uses a NON-agent name, which
+# shares one bucket per IP, so it never locks a real fixture agent.
+codes = []
+for i in range(10):
+    r = call("POST", "/auth/login", {"username": "lockout-" + U, "password": "x%d" % i}, key=None)
+    codes.append(r.status)
+    if r.status == 429: break
+check("login lockout: 401s, then 429 (no cookie, direct API call)", codes[-1] == 429 and set(codes[:-1]) == {401} and len(codes) >= 2, codes)
+check("login lockout: 429 carries Retry-After and error.details.retry_after (the app shows that timer)",
+      r.err == "rate_limited" and int(r.headers.get("Retry-After", "0")) > 0 and r.json["error"]["details"]["retry_after"] > 0, r.raw[:160])
+check("login lockout: an agent with a good password on the same IP is not affected", bool(login(*ADMIN)))
 v = call("GET", "/auth/verify", token=TOK)
 check("verify", v.status == 200 and v.data["valid"] and v.data["staff"]["username"] == ADMIN[0])
 cfg = call("GET", "/config", token=TOK)

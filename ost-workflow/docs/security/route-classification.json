@@ -27,7 +27,7 @@
    "impact": "SECURITY_SENSITIVE",
    "reversible": "yes (token revocable)",
    "necessity": "REQUIRED_BY_CORE_WORKFLOW",
-   "abuse": "Credential stuffing: 5 failures per user+real IP lock 30 min; generic 401; token signed with its own secret. Agents with a second factor in osTicket are refused (403 two_factor_required) before any backend runs: no token, no OTP e-mail (MSOLIS A1, 2026-09-28).",
+   "abuse": "Credential stuffing: osTicket's native lockout (staff_max_logins / staff_login_timeout) per agent+real IP, persisted in ost_session by LoginGuard; 429 rate_limited + Retry-After; generic 401; token signed with its own secret. Agents with a second factor in osTicket are refused (403 two_factor_required) before any backend runs: no token, no OTP e-mail (MSOLIS A1, 2026-09-28).",
    "recommendation": "KEEP"
   },
   "POST /auth/logout": {

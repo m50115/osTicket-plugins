@@ -3,6 +3,8 @@ namespace OstWorkflow\Handlers;
 
 use OstWorkflow\ApiError;
 use OstWorkflow\Auth;
+use OstWorkflow\ClientIp;
+use OstWorkflow\LoginGuard;
 use OstWorkflow\Request;
 use OstWorkflow\Res;
 use OstWorkflow\Time;
@@ -26,10 +28,14 @@ final class Session {
         if (strlen($username) > 128 || strlen($password) > 512)
             throw ApiError::validation('credentials too long');
 
-        // Lockout / strikes are the native auth backends' business (StaffAuthenticationBackend::process).
+        // Native lockout (staff_max_logins / staff_login_timeout), made persistent for the stateless API: LoginGuard.
+        LoginGuard::enter($username, ClientIp::ip($req));
         $staff = Auth::login($username, $password);
-        if (!$staff)
+        if (!$staff) {
+            LoginGuard::throwIfLocked();   // the failure that crosses the threshold answers 429 too
             throw new ApiError('unauthorized', 'Invalid credentials');
+        }
+        LoginGuard::success();
 
         list($token, $payload) = Token::issue($staff);
         return Res::ok([
