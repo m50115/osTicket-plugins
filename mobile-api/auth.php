@@ -10,11 +10,7 @@
  * the box.
  *
  * Token format: base64url(payload) . "." . base64url(hmac)
- * Payload:      {"id":<staff_id>, "fp":<credentials fingerprint>, "exp":<unix_timestamp>}
- *
- * SEC-01: agents with a second factor in osTicket (or required to enrol one) get 403
- *   {"error": "...", "code": "two_factor_required"} on login, verify and every protected call: this API has no
- *   second-factor step, so those agents use the staff panel (or the Workflow API, which has one).
+ * Payload:      {"id":<staff_id>, "exp":<unix_timestamp>}
  *
  * Endpoints:
  *   POST /api/mobile/auth/login   {"username":"...", "password":"..."}
@@ -42,48 +38,36 @@ class MobileAuth {
         header('Pragma: no-cache');
         header('X-Content-Type-Options: nosniff');
 
+        // SEC: Rate limiting — track failed login attempts by IP
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $lockFile = sys_get_temp_dir() . '/mobile_api_login_' . md5($ip) . '.json';
+
+        if (file_exists($lockFile)) {
+            $lockData = json_decode(file_get_contents($lockFile), true);
+            if ($lockData && isset($lockData['count']) && isset($lockData['last'])) {
+                $elapsed = time() - (int) $lockData['last'];
+                if ($lockData['count'] >= self::MAX_LOGIN_ATTEMPTS && $elapsed < self::LOCKOUT_SECONDS) {
+                    $remaining = self::LOCKOUT_SECONDS - $elapsed;
+                    http_response_code(429);
+                    header('Retry-After: ' . $remaining);
+                    echo json_encode(array('error' => 'Too many login attempts. Try again later.'));
+                    exit;
+                }
+                // Reset counter if lockout expired
+                if ($elapsed >= self::LOCKOUT_SECONDS) {
+                    @unlink($lockFile);
+                }
+            }
+        }
+
         $body     = json_decode(file_get_contents('php://input'), true);
-        $username = isset($body['username']) && is_string($body['username']) ? trim($body['username']) : '';
-        $password = isset($body['password']) && is_string($body['password']) ? $body['password'] : '';
+        $username = isset($body['username']) ? trim($body['username']) : '';
+        $password = isset($body['password']) ? $body['password'] : '';
 
         if (!$username || !$password) {
             http_response_code(400);
             echo json_encode(array('error' => 'username and password are required'));
             exit;
-        }
-
-        // SEC-01 R01: this API has no second-factor step. An agent with a second factor in osTicket (or one the
-        // installation requires to enrol one) is refused BEFORE process(): no token, no OTP e-mail, no password oracle.
-        $known = Staff::lookup($username);
-        if ($known)
-            self::denySecondFactor($known);
-
-        // SEC: Rate limiting — failed attempts per (client address, agent), serialized with flock. One shared bucket per
-        // address for names that are not agents. Only that agent's success clears its counter (SEC-01: a success of
-        // ANOTHER account from the same address used to clear it, i.e. unlimited guesses).
-        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-        $lockFile = sys_get_temp_dir() . '/mobile_api_login_'
-            . hash_hmac('sha256', $ip . '|' . ($known ? 's' . (int) $known->getId() : 'unknown'), SECRET_SALT) . '.json';
-        $fh = @fopen($lockFile, 'c+');
-        if (!$fh || !flock($fh, LOCK_EX)) {
-            http_response_code(429);
-            header('Retry-After: 5');
-            echo json_encode(array('error' => 'Too many login attempts. Try again later.'));
-            exit;   // fail closed
-        }
-        $lockData = json_decode(stream_get_contents($fh), true);
-        $count = 0;
-        if ($lockData && isset($lockData['count']) && isset($lockData['last'])) {
-            $elapsed = time() - (int) $lockData['last'];
-            if ($lockData['count'] >= self::MAX_LOGIN_ATTEMPTS && $elapsed < self::LOCKOUT_SECONDS) {
-                $remaining = self::LOCKOUT_SECONDS - $elapsed;
-                http_response_code(429);
-                header('Retry-After: ' . $remaining);
-                echo json_encode(array('error' => 'Too many login attempts. Try again later.'));
-                exit;
-            }
-            // Reset counter if lockout expired
-            $count = $elapsed >= self::LOCKOUT_SECONDS ? 0 : (int) $lockData['count'];
         }
 
         // Use the same authentication path as the browser (scp/login.php).
@@ -93,9 +77,14 @@ class MobileAuth {
 
         if (!$user) {
             // SEC: Increment failed attempt counter
-            ftruncate($fh, 0); rewind($fh);
-            fwrite($fh, json_encode(array('count' => $count + 1, 'last' => time())));
-            fflush($fh);
+            $lockData = array('count' => 1, 'last' => time());
+            if (file_exists($lockFile)) {
+                $existing = json_decode(file_get_contents($lockFile), true);
+                if ($existing && isset($existing['count'])) {
+                    $lockData['count'] = $existing['count'] + 1;
+                }
+            }
+            file_put_contents($lockFile, json_encode($lockData));
 
             http_response_code(401);
             echo json_encode(array('error' => 'Invalid credentials'));
@@ -103,8 +92,9 @@ class MobileAuth {
         }
 
         // SEC: Clear failed attempts on successful login
-        ftruncate($fh, 0);
-        fflush($fh);
+        if (file_exists($lockFile)) {
+            @unlink($lockFile);
+        }
 
         // Load the full Staff object to build the response payload.
         $staff = Staff::lookup($user->getId());
@@ -114,10 +104,8 @@ class MobileAuth {
             echo json_encode(array('error' => 'Account is not active'));
             exit;
         }
-        // Defense in depth: a backend may resolve the account differently from the lookup above.
-        self::denySecondFactor($staff);
 
-        $token = self::createToken($staff);
+        $token = self::createToken($staff->getId());
 
         http_response_code(200);
         echo json_encode(array(
@@ -131,35 +119,6 @@ class MobileAuth {
             ),
         ));
         exit;
-    }
-
-    /**
-     * SEC-01 R01: true when osTicket demands a second factor from this agent (one selected, or the installation requires
-     * agents to enrol one). This API cannot verify any second factor, so such agents cannot use it (staff panel only).
-     */
-    static function needsSecondFactor($staff) {
-        global $cfg;
-        if (method_exists($staff, 'get2FABackendId') && (string) $staff->get2FABackendId() !== '')
-            return true;
-        return $cfg && method_exists($cfg, 'require2FAForAgents') && $cfg->require2FAForAgents();
-    }
-
-    /** 403 two_factor_required and exit when the agent needs a second factor (login, verify and every protected call). */
-    static function denySecondFactor($staff) {
-        if (!self::needsSecondFactor($staff)) return;
-        http_response_code(403);
-        echo json_encode(array(
-            'error' => 'Two-factor authentication is required for this account; this API cannot verify it. Sign in through the staff panel.',
-            'code'  => 'two_factor_required',
-        ));
-        exit;
-    }
-
-    /** Short fingerprint of the agent's credentials (password hash + active flag): a password change or a lock voids
-     *  every outstanding token (SEC-01 R01). */
-    static function fingerprint($staff) {
-        return substr(hash_hmac('sha256', 'mfp|' . (int) $staff->getId() . '|' . (string) $staff->getPasswd() . '|'
-            . ($staff->isActive() ? '1' : '0'), SECRET_SALT), 0, 16);
     }
 
     static function handleVerify() {
@@ -179,7 +138,6 @@ class MobileAuth {
             echo json_encode(array('error' => 'Account is not active'));
             exit;
         }
-        self::denySecondFactor($staff);
         echo json_encode(array('valid' => true));
         exit;
     }
@@ -241,13 +199,8 @@ class MobileAuth {
 
         // Decode and validate payload
         $payload = json_decode(self::b64url_decode($b64_payload), true);
-        if (!$payload || !isset($payload['id']) || !isset($payload['exp']) || !isset($payload['fp'])) return null;
+        if (!$payload || !isset($payload['id']) || !isset($payload['exp'])) return null;
         if ($payload['exp'] < time()) return null;
-
-        // SEC-01 R01: the token must match the agent's current credentials (password change / lock revokes it). Tokens
-        // issued before this check (no `fp`) are refused once: the client signs in again.
-        $staff = Staff::lookup((int) $payload['id']);
-        if (!$staff || !hash_equals(self::fingerprint($staff), (string) $payload['fp'])) return null;
 
         return (int) $payload['id'];
     }
@@ -256,10 +209,9 @@ class MobileAuth {
     // Internal token creation
     // ------------------------------------------------------------------
 
-    static function createToken($staff) {
+    static function createToken($staff_id) {
         $payload    = json_encode(array(
-            'id'  => (int) $staff->getId(),
-            'fp'  => self::fingerprint($staff),
+            'id'  => (int) $staff_id,
             'exp' => time() + self::TOKEN_TTL,
         ));
         $b64_payload = self::b64url_encode($payload);

@@ -559,7 +559,6 @@ class MobileTickets {
             echo json_encode(array('error' => 'Account is not active'));
             exit;
         }
-        MobileAuth::denySecondFactor($staff);   // SEC-01 R01: tokens of agents who later enable 2FA die
 
         return $staff;
     }
