@@ -80,7 +80,7 @@ final class Token {
     static function challenge(\Staff $staff) {
         $now = time();
         $p = self::b64(json_encode(['v' => 'c1', 'id' => (int) $staff->getId(), 'fp' => self::fingerprint($staff),
-            'iat' => $now, 'exp' => $now + self::CHALLENGE_TTL]));
+            'iat' => $now, 'exp' => $now + self::CHALLENGE_TTL, 'n' => bin2hex(random_bytes(8))]));
         return [$p . '.' . self::b64(hash_hmac('sha256', 'challenge|' . $p, self::secret(), true)), self::CHALLENGE_TTL];
     }
 

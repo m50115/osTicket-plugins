@@ -53,15 +53,19 @@ final class LoginGuard {
     }
 
     /**
-     * SEC-01 R13: a challenge is single-use once it has produced a token: any challenge issued at or before the last
+     * SEC-01 R13: a challenge is single-use once it has produced a token: that challenge and any issued before the last
      * accepted second step of this agent is refused (state kept in the agent's code bucket; no table).
      */
     static function challengeSpent(array $c) {
-        return (int) ($c['iat'] ?? 0) <= (int) ($_SESSION['_bcw2fa']['iat'] ?? 0);
+        $spent = $_SESSION['_bcw2fa']['spent'] ?? null;
+        if (!is_array($spent)) return false;
+        $iat = (int) ($c['iat'] ?? 0);
+        return $iat < (int) $spent['iat']
+            || ($iat === (int) $spent['iat'] && hash_equals((string) $spent['n'], (string) ($c['n'] ?? '')));
     }
 
     static function spendChallenge(array $c) {
-        $_SESSION['_bcw2fa']['iat'] = (int) ($c['iat'] ?? 0);
+        $_SESSION['_bcw2fa']['spent'] = ['iat' => (int) ($c['iat'] ?? 0), 'n' => (string) ($c['n'] ?? '')];
     }
 
     /**
