@@ -108,6 +108,42 @@
                 }
             }
         },
+        "/auth/login/2fa": {
+            "post": {
+                "operationId": "sessionLoginSecondFactor_post_auth_login_2fa",
+                "tags": [
+                    "Session"
+                ],
+                "x-policy": "auth",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Success: {\"data\": …, \"meta\": …}"
+                    },
+                    "default": {
+                        "description": "Typed error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/auth/logout": {
             "post": {
                 "operationId": "sessionLogout_post_auth_logout",

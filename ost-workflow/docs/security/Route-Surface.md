@@ -2,7 +2,7 @@
 
 > Generado por `prod-sandbox/gen-route-matrix.py` a partir de `docs/openapi.json` (tabla real de rutas) y `docs/security/route-classification.json` (única fuente editable). No editar a mano.
 
-**118 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
+**119 rutas.** Base congelada el 2026-09-28 (hardening). Decisiones, modelo de amenaza y evidencia: nota `2026-09-28-bestcare-workflow-ost-workflow-security-hardening` de la bóveda 02-KE.
 
 ## Por impacto
 
@@ -10,7 +10,7 @@
 |---|---|
 | READ_ONLY | 60 |
 | REVERSIBLE_UPDATE | 23 |
-| SECURITY_SENSITIVE | 18 |
+| SECURITY_SENSITIVE | 19 |
 | APPEND_ONLY | 9 |
 | HIGH_IMPACT_UPDATE | 8 |
 
@@ -19,7 +19,7 @@
 | Valor | Rutas |
 |---|---|
 | REQUIRED_BY_DESIGNED_CONSUMER | 94 |
-| REQUIRED_BY_CORE_WORKFLOW | 15 |
+| REQUIRED_BY_CORE_WORKFLOW | 16 |
 | NO_CONSUMER_YET | 5 |
 | USEFUL_BUT_NOT_REQUIRED | 4 |
 
@@ -27,7 +27,7 @@
 
 | Valor | Rutas |
 |---|---|
-| FIELD_OPERATION | 69 |
+| FIELD_OPERATION | 70 |
 | WORKFLOW_OPERATION | 34 |
 | SYSTEM_ADMINISTRATION | 15 |
 
@@ -35,7 +35,7 @@
 
 | Valor | Rutas |
 |---|---|
-| KEEP | 118 |
+| KEEP | 119 |
 
 ## Rutas retiradas de la superficie pública (2026-09-28)
 
@@ -55,7 +55,8 @@ Leyenda: R/W = lectura/escritura; *Permiso* = política que el plugin aplica ant
 
 | Endpoint | R/W | Permiso | Consumidor | Categoría | Impacto | Reversible | Necesidad | Riesgo de abuso | Recomendación |
 |---|---|---|---|---|---|---|---|---|---|
-| `POST /auth/login` | W | `auth` | core | FIELD_OPERATION | SECURITY_SENSITIVE | yes (token revocable) | REQUIRED_BY_CORE_WORKFLOW | Credential stuffing: osTicket's native lockout (staff_max_logins / staff_login_timeout) per agent+real IP, persisted in ost_session by LoginGuard; 429 rate_limited + Retry-After; generic 401; token signed with its own secret. Agents with a second factor in osTicket are refused (403 two_factor_required) before any backend runs: no token, no OTP e-mail (MSOLIS A1, 2026-09-28). | KEEP |
+| `POST /auth/login` | W | `auth` | core | FIELD_OPERATION | SECURITY_SENSITIVE | yes (token revocable) | REQUIRED_BY_CORE_WORKFLOW | Credential stuffing: osTicket's native lockout (staff_max_logins / staff_login_timeout) per agent+real IP, persisted in ost_session by LoginGuard; 429 rate_limited + Retry-After; generic 401; token signed with its own secret. Second factor (SEC-01, proposed D-24 amendment): an agent enrolled in the installation's own TOTP backend (official 'Two Factor Authenticator' plugin, auth.agent) gets 403 two_factor_required with a 5-minute signed challenge after a correct password, never a token; any other second factor (e-mail, inactive backend, not enrolled) is refused before any backend runs (no token, no OTP e-mail, MSOLIS A1); require_agent_2fa without a second factor -> 403 two_factor_required reason setup_required. | KEEP |
+| `POST /auth/login/2fa` | W | `auth` | core | FIELD_OPERATION | SECURITY_SENSITIVE | yes (token revocable) | REQUIRED_BY_CORE_WORKFLOW | Second step of a 2FA login (SEC-01): {challenge, code}. The challenge is HMAC-signed with the instance secret (own domain, 5 min, bound to the credentials fingerprint). The code is checked with the installation's own backend (auth.agent secret + the plugin's Sonata library; no TOTP engine in ost-workflow); a code is not accepted twice. Code guessing: native policy (staff_max_logins / staff_login_timeout) in a persistent per-AGENT bucket (not reset by a correct password), 401 then 429 + Retry-After; each failure is a native strike (log + admin alert). The token carries mfa=1; tokens without it stop working for agents with a second factor. | KEEP |
 | `POST /auth/logout` | W | `auth` | core | FIELD_OPERATION | SECURITY_SENSITIVE | n/a | REQUIRED_BY_CORE_WORKFLOW | Stateless: returns 200 and the client discards the token; a still-valid token is not revoked before its TTL (a password change or lock in osTicket invalidates it). | KEEP |
 | `GET /auth/verify` | R | `auth` | core | FIELD_OPERATION | READ_ONLY | n/a | REQUIRED_BY_CORE_WORKFLOW | Own profile/permissions only (signature is readable, no longer writable). | KEEP |
 | `GET /canned` | R | `auth` | tickets (templates) | FIELD_OPERATION | READ_ONLY | n/a | USEFUL_BUT_NOT_REQUIRED | Templates per department visibility; render has no external effect. | KEEP |

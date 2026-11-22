@@ -27,7 +27,17 @@
    "impact": "SECURITY_SENSITIVE",
    "reversible": "yes (token revocable)",
    "necessity": "REQUIRED_BY_CORE_WORKFLOW",
-   "abuse": "Credential stuffing: osTicket's native lockout (staff_max_logins / staff_login_timeout) per agent+real IP, persisted in ost_session by LoginGuard; 429 rate_limited + Retry-After; generic 401; token signed with its own secret. Agents with a second factor in osTicket are refused (403 two_factor_required) before any backend runs: no token, no OTP e-mail (MSOLIS A1, 2026-09-28).",
+   "abuse": "Credential stuffing: osTicket's native lockout (staff_max_logins / staff_login_timeout) per agent+real IP, persisted in ost_session by LoginGuard; 429 rate_limited + Retry-After; generic 401; token signed with its own secret. Second factor (SEC-01, proposed D-24 amendment): an agent enrolled in the installation's own TOTP backend (official 'Two Factor Authenticator' plugin, auth.agent) gets 403 two_factor_required with a 5-minute signed challenge after a correct password, never a token; any other second factor (e-mail, inactive backend, not enrolled) is refused before any backend runs (no token, no OTP e-mail, MSOLIS A1); require_agent_2fa without a second factor -> 403 two_factor_required reason setup_required.",
+   "recommendation": "KEEP"
+  },
+  "POST /auth/login/2fa": {
+   "category": "FIELD_OPERATION",
+   "rw": "W",
+   "consumer": "core",
+   "impact": "SECURITY_SENSITIVE",
+   "reversible": "yes (token revocable)",
+   "necessity": "REQUIRED_BY_CORE_WORKFLOW",
+   "abuse": "Second step of a 2FA login (SEC-01): {challenge, code}. The challenge is HMAC-signed with the instance secret (own domain, 5 min, bound to the credentials fingerprint). The code is checked with the installation's own backend (auth.agent secret + the plugin's Sonata library; no TOTP engine in ost-workflow); a code is not accepted twice. Code guessing: native policy (staff_max_logins / staff_login_timeout) in a persistent per-AGENT bucket (not reset by a correct password), 401 then 429 + Retry-After; each failure is a native strike (log + admin alert). The token carries mfa=1; tokens without it stop working for agents with a second factor.",
    "recommendation": "KEEP"
   },
   "POST /auth/logout": {

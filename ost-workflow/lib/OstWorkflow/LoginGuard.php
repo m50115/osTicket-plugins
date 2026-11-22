@@ -22,8 +22,38 @@ final class LoginGuard {
 
     /** Swap in the persisted strike session; throws rate_limited while the core says the pair is locked. */
     static function enter($username, $ip) {
+        self::open(self::id($username, $ip), $ip);
+    }
+
+    /**
+     * SEC-01 second step: ONE bucket per agent (not per IP) for verification codes, separate from the password bucket on
+     * purpose — a correct password runs the core's login(), which empties the password bucket's strikes, so sharing it
+     * would let whoever knows the password reset the code counter at will. Nothing but a valid code or the native
+     * timeout clears this one. Same native policy (staff_max_logins / staff_login_timeout) and the same 429 + Retry-After.
+     */
+    static function enterSecondFactor(\Staff $staff, $ip) {
+        self::open(substr(hash_hmac('sha256', 'login2fa|s' . (int) $staff->getId(), Token::secret()), 0, 32), $ip);
+        // not locked: an EXPIRED lock starts a new round, as the core does for passwords before process() (authTimeout)
+        \StaffAuthStrikeBackend::authTimeout();
+    }
+
+    /** A failed verification code counts as a native failed login (StaffAuthStrikeBackend: counter, log, admin alert). */
+    static function strike(\Staff $staff) {
+        \StaffAuthStrikeBackend::authstrike(['username' => $staff->getUserName()]);
+    }
+
+    /** One accepted code (per agent) is never accepted twice inside its validity window (the panel has no such check). */
+    static function codeReused($code) {
+        $u = $_SESSION['_bcw2fa']['used'] ?? null;
+        return is_array($u) && hash_equals((string) $u['h'], hash('sha256', (string) $code)) && $u['t'] > time() - 120;
+    }
+
+    static function rememberCode($code) {
+        $_SESSION['_bcw2fa']['used'] = ['h' => hash('sha256', (string) $code), 't' => time()];
+    }
+
+    private static function open($id, $ip) {
         global $cfg;
-        $id = self::id($username, $ip);
         $window = max(600, 2 * (int) $cfg->getStaffLoginTimeout());
         db_query(sprintf("INSERT IGNORE INTO %s (session_id, session_data, session_expire, session_updated, user_id, user_ip, user_agent) "
             . "VALUES (%s, '', DATE_ADD(NOW(), INTERVAL %d SECOND), NOW(), 0, %s, NULL)",
