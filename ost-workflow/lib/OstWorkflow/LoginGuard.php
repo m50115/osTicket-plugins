@@ -59,8 +59,9 @@ final class LoginGuard {
         // every read returned '' (lookupRecord treats an expired row as empty) and the pair could never lock again until
         // the session GC happened to delete the row (proven in e2e18: 6 wrong passwords, all 401). Keep the row alive
         // while it is used; a row that had already expired starts empty, exactly like a native expired session.
+        // user_agent is NOT NULL: '' (INSERT IGNORE used to coerce the NULL silently; a plain upsert would fail).
         db_query(sprintf("INSERT INTO %s (session_id, session_data, session_expire, session_updated, user_id, user_ip, user_agent) "
-            . "VALUES (%s, '', DATE_ADD(NOW(), INTERVAL %d SECOND), NOW(), 0, %s, NULL) "
+            . "VALUES (%s, '', DATE_ADD(NOW(), INTERVAL %d SECOND), NOW(), 0, %s, '') "
             . "ON DUPLICATE KEY UPDATE session_data = IF(session_expire < NOW(), '', session_data), "
             . "session_expire = DATE_ADD(NOW(), INTERVAL %d SECOND)",
             SESSION_TABLE, db_input($id), $window, db_input(substr((string) $ip, 0, 64)), $window));
