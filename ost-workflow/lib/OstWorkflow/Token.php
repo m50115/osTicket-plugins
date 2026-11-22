@@ -7,8 +7,9 @@ namespace OstWorkflow;
  *   payload = {v:2, id:<staff>, fp:<fingerprint>, iat, exp}
  * The secret lives in PluginConfig (PasswordField), NOT in SECRET_SALT (R-C15).
  *
- * Invalidation is derived from the native staff record: `fp` is a short HMAC of the staff's current password hash
- * and active flag, so a password change or a lock invalidates every outstanding token, and a deleted agent has none
+ * Invalidation is derived from the native staff record: `fp` is a short HMAC of the staff's current password hash,
+ * active flag and second factor (backend + seed), so a password change, a lock or a second-factor change invalidates
+ * every outstanding token, and a deleted agent has none
  * (the lookup fails). Authentication belongs to osTicket: logout does not revoke a still-valid token before its TTL
  * (the client discards it).
  */
@@ -20,10 +21,20 @@ final class Token {
         return $s;
     }
 
-    /** Short fingerprint of the native credentials state of the agent. */
+    /**
+     * Short fingerprint of the native credentials state of the agent: password hash, active flag and (SEC-01 R09) the
+     * second factor — the selected backend and a hash of the stored authenticator item (`auth.agent`, i.e. the seed).
+     * Changing the seed, switching or removing the backend revokes every token and challenge. Agents that never had a
+     * second factor keep the former fingerprint (their outstanding tokens stay valid across this upgrade).
+     */
     static function fingerprint(\Staff $staff) {
-        return substr(hash_hmac('sha256', 'fp|' . $staff->getId() . '|' . (string) $staff->getPasswd() . '|' . ($staff->isActive() ? '1' : '0'),
-            self::secret()), 0, 16);
+        $f = 'fp|' . $staff->getId() . '|' . (string) $staff->getPasswd() . '|' . ($staff->isActive() ? '1' : '0');
+        $bk = (string) $staff->get2FABackendId();
+        $conf = $staff->getConfig();
+        $seed = is_array($conf) ? (string) ($conf['auth.agent'] ?? '') : '';
+        if ($bk !== '' || $seed !== '')
+            $f .= '|2fa|' . $bk . '|' . hash('sha256', $seed);
+        return substr(hash_hmac('sha256', $f, self::secret()), 0, 16);
     }
 
     /**

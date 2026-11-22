@@ -10,6 +10,8 @@ namespace OstWorkflow;
  * (R-C09, PP-06).
  */
 final class Auth {
+    /** bcrypt of a random string (cost 08, like osTicket's PasswordHash): only spends the same time as a real check. */
+    const DUMMY_HASH = '$2y$08$eL1QyGgT1VxsP3VHJVVlg.Wg4jhJjXFhom0qPJ/vSQi9XQdgzbuuK';
     static function bearer(Request $req) {
         $h = (string) $req->header('Authorization');
         return preg_match('/^Bearer\s+(\S+)$/i', $h, $m) ? $m[1] : null;
@@ -58,6 +60,8 @@ final class Auth {
         // Same resolution the panel uses (username, e-mail or id).
         if (($known = \Staff::lookup($username)) && self::hasSecondFactor($known) && !self::totpBackend($known))
             throw self::twoFactorRequired();
+        // SEC-01 R08 (timing): an unknown name costs one password hash like a known one (the core skips it).
+        if (!$known) password_verify($password, self::DUMMY_HASH);
         $errors = [];
         $result = \StaffAuthenticationBackend::process($username, $password, $errors);
         if (!$result instanceof \AuthenticatedUser && !$result instanceof \Staff && !is_object($result))
@@ -93,23 +97,25 @@ final class Auth {
     static function totpBackend(\Staff $staff) {
         if ((string) $staff->get2FABackendId() !== 'auth.agent') return null;
         $bk = \Staff2FABackend::lookup('auth.agent');
-        if (!$bk || !method_exists($bk, 'getSecretKey') || !class_exists('\\Sonata\\GoogleAuthenticator\\GoogleAuthenticator'))
+        // SEC-01 R02/R06: only the hardened plugin (persistent per-agent counter, lockout, no replay: checkAgentCode). A stock
+        // plugin without it is treated as a factor this API cannot verify (403 unsupported_second_factor, fail closed).
+        if (!$bk || !method_exists($bk, 'checkAgentCode') || !class_exists('\\Sonata\\GoogleAuthenticator\\GoogleAuthenticator'))
             return null;
         $conf = $staff->get2FAConfig('auth.agent');
         return (is_array($conf) && !empty($conf['config']['key'])) ? $bk : null;
     }
 
     /**
-     * Verifies a code with the plugin's own backend: its stored secret (Auth2FABackend::getSecretKey, read-only here
-     * because the agent is enrolled) and its bundled Sonata GoogleAuthenticator::checkCode — exactly what
-     * Auth2FABackend::validateLoginCode() does, minus its lookup of the SCP session user, which a stateless API request
-     * does not have. No TOTP engine of our own.
+     * Verifies a code with the plugin's own guarded check (Auth2FABackend::checkAgentCode: its stored secret, its bundled
+     * Sonata library, ONE persistent per-agent failure budget shared with the staff panel, growing lockout, single use of
+     * every code, serialized per agent). No TOTP engine of our own.
+     * @return array ['ok' => bool, 'retry_after' => int] (retry_after > 0: the agent's code step is locked)
      */
     static function checkCode(\Staff $staff, $code) {
         $bk = self::totpBackend($staff);
-        if (!$bk || !preg_match('/^[0-9]{6}$/', (string) $code)) return false;
-        $ga = new \Sonata\GoogleAuthenticator\GoogleAuthenticator();
-        return (bool) $ga->checkCode($bk->getSecretKey($staff), (string) $code);
+        if (!$bk || !preg_match('/^[0-9]{6}$/', (string) $code)) return ['ok' => false, 'retry_after' => 0];
+        $r = $bk::checkAgentCode($staff, (string) $code);
+        return ['ok' => !empty($r['ok']), 'retry_after' => max(0, (int) ($r['retry_after'] ?? 0))];
     }
 
     /** True when the agent has a second-factor backend selected in osTicket (whether or not it is currently registered). */

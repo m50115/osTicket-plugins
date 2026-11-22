@@ -52,8 +52,39 @@ final class LoginGuard {
         $_SESSION['_bcw2fa']['used'] = ['h' => hash('sha256', (string) $code), 't' => time()];
     }
 
+    /**
+     * SEC-01 R13: a challenge is single-use once it has produced a token: any challenge issued at or before the last
+     * accepted second step of this agent is refused (state kept in the agent's code bucket; no table).
+     */
+    static function challengeSpent(array $c) {
+        return (int) ($c['iat'] ?? 0) <= (int) ($_SESSION['_bcw2fa']['iat'] ?? 0);
+    }
+
+    static function spendChallenge(array $c) {
+        $_SESSION['_bcw2fa']['iat'] = (int) ($c['iat'] ?? 0);
+    }
+
+    /**
+     * SEC-01 R05: one request at a time per bucket. Without it, parallel requests all read the same strike count before
+     * any of them wrote it back (measured: 8-12 evaluated attempts per window instead of 5; 3 tokens from 5 parallel
+     * copies of one valid code). MySQL GET_LOCK through osTicket's own connection (no table); held until the bucket's
+     * session has been written at the end of the request. Fail CLOSED: no lock, no evaluation (429).
+     */
+    private static function serialize($id) {
+        $name = 'bcw.lg.' . $id;
+        $r = db_query('SELECT GET_LOCK(' . db_input($name) . ', 10)');
+        if (!$r || (int) db_result($r) !== 1)
+            throw new ApiError('rate_limited', 'Too many concurrent attempts; try again later', null,
+                ['retry_after' => 5], ['Retry-After' => '5']);
+        register_shutdown_function(function () use ($name) {
+            @session_write_close();          // persist the strikes BEFORE the next request of this bucket reads them
+            db_query('SELECT RELEASE_LOCK(' . db_input($name) . ')');
+        });
+    }
+
     private static function open($id, $ip) {
         global $cfg;
+        self::serialize($id);
         $window = max(600, 2 * (int) $cfg->getStaffLoginTimeout());
         // SEC-01 fix: the core only UPDATES an existing row and never moves its session_expire; once that time passed,
         // every read returned '' (lookupRecord treats an expired row as empty) and the pair could never lock again until

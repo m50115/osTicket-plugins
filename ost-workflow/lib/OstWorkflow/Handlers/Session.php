@@ -69,13 +69,22 @@ final class Session {
                 ['reason' => 'challenge_invalid']);
 
         LoginGuard::enterSecondFactor($staff, ClientIp::ip($req));
-        if (LoginGuard::codeReused($code) || !Auth::checkCode($staff, $code)) {
+        if (LoginGuard::challengeSpent($c))
+            throw new ApiError('unauthorized', 'Invalid or expired verification challenge; sign in again', null,
+                ['reason' => 'challenge_invalid']);
+        // Auth::checkCode = the hardened plugin's shared per-agent budget (growing lockout, single use of each code).
+        $r = LoginGuard::codeReused($code) ? ['ok' => false, 'retry_after' => 0] : Auth::checkCode($staff, $code);
+        if (!$r['ok']) {
             LoginGuard::strike($staff);
-            LoginGuard::throwIfLocked();   // the failure that crosses the threshold answers 429 too
+            // the failure that crosses either threshold answers 429 too; the longer lock wins
+            if (($n = max(LoginGuard::remaining(), $r['retry_after'])) > 0)
+                throw new ApiError('rate_limited', 'Too many failed attempts; try again later', null,
+                    ['retry_after' => $n], ['Retry-After' => (string) $n]);
             throw new ApiError('unauthorized', 'Invalid verification code', null, ['reason' => 'invalid_code']);
         }
         LoginGuard::success();
         LoginGuard::rememberCode($code);
+        LoginGuard::spendChallenge($c);
         return self::issued($staff, true);
     }
 
