@@ -73,7 +73,10 @@ final class Session {
             throw new ApiError('unauthorized', 'Invalid or expired verification challenge; sign in again', null,
                 ['reason' => 'challenge_invalid']);
         // Auth::checkCode = the hardened plugin's shared per-agent budget (growing lockout, single use of each code).
-        $r = LoginGuard::codeReused($code) ? ['ok' => false, 'retry_after' => 0] : Auth::checkCode($staff, $code);
+        $r = LoginGuard::codeReused($code) ? ['ok' => false, 'retry_after' => 0, 'locked' => false] : Auth::checkCode($staff, $code);
+        if ($r['locked'])   // the agent's code step is locked (shared with the panel): not evaluated, not counted twice
+            throw new ApiError('rate_limited', 'Too many failed attempts; try again later', null,
+                ['retry_after' => $r['retry_after']], ['Retry-After' => (string) $r['retry_after']]);
         if (!$r['ok']) {
             LoginGuard::strike($staff);
             // the failure that crosses either threshold answers 429 too; the longer lock wins

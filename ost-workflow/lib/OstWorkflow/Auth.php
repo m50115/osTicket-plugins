@@ -109,13 +109,14 @@ final class Auth {
      * Verifies a code with the plugin's own guarded check (Auth2FABackend::checkAgentCode: its stored secret, its bundled
      * Sonata library, ONE persistent per-agent failure budget shared with the staff panel, growing lockout, single use of
      * every code, serialized per agent). No TOTP engine of our own.
-     * @return array ['ok' => bool, 'retry_after' => int] (retry_after > 0: the agent's code step is locked)
+     * @return array ['ok' => bool, 'retry_after' => int, 'locked' => bool] (retry_after > 0: the agent's code step is
+     *               locked; locked: the code was not evaluated at all)
      */
     static function checkCode(\Staff $staff, $code) {
         $bk = self::totpBackend($staff);
-        if (!$bk || !preg_match('/^[0-9]{6}$/', (string) $code)) return ['ok' => false, 'retry_after' => 0];
+        if (!$bk || !preg_match('/^[0-9]{6}$/', (string) $code)) return ['ok' => false, 'retry_after' => 0, 'locked' => false];
         $r = $bk::checkAgentCode($staff, (string) $code);
-        return ['ok' => !empty($r['ok']), 'retry_after' => max(0, (int) ($r['retry_after'] ?? 0))];
+        return ['ok' => !empty($r['ok']), 'retry_after' => max(0, (int) ($r['retry_after'] ?? 0)), 'locked' => !empty($r['locked'])];
     }
 
     /** True when the agent has a second-factor backend selected in osTicket (whether or not it is currently registered). */

@@ -107,7 +107,8 @@ class Auth2FABackend extends TwoFactorAuthenticationBackend {
      *    are not evaluated.
      *  - a code is accepted only for a time step newer than the last accepted one (RFC 6238 §5.2: no replay).
      *  - serialized per agent with MySQL GET_LOCK (no table); if the lock cannot be taken the code is NOT checked.
-     * @return array ['ok' => bool, 'retry_after' => seconds the code step stays locked (0 = not locked)]
+     * @return array ['ok' => bool, 'retry_after' => seconds the code step stays locked (0 = not locked),
+     *                'locked' => true when the code was NOT evaluated (locked before this attempt, or no lock)]
      */
     static function checkAgentCode($staff, $code) {
         global $cfg, $ost;
@@ -121,7 +122,7 @@ class Auth2FABackend extends TwoFactorAuthenticationBackend {
         $lock = substr('ost2fa.' . md5((defined('DBNAME') ? DBNAME : '') . '|' . TABLE_PREFIX) . '.' . $id, 0, 64);
         $res = db_query('SELECT GET_LOCK(' . db_input($lock) . ', 10)');
         if (!$res || (int) db_result($res) !== 1)
-            return array('ok' => false, 'retry_after' => 5);   // fail closed: not evaluated
+            return array('ok' => false, 'retry_after' => 5, 'locked' => true);   // fail closed: not evaluated
         try {
             $store = new Config('staff.' . $id);
             $g = JsonDataParser::decode((string) $store->get(self::GUARD_KEY));
@@ -132,7 +133,7 @@ class Auth2FABackend extends TwoFactorAuthenticationBackend {
             $g['p'] = $fp;
             $now = time();
             if ((int) ($g['u'] ?? 0) > $now)
-                return array('ok' => false, 'retry_after' => (int) $g['u'] - $now);
+                return array('ok' => false, 'retry_after' => (int) $g['u'] - $now, 'locked' => true);
 
             $step = self::acceptedStep($secret, $code, $now);
             if ($step && $step > (int) ($g['s'] ?? 0)) {
