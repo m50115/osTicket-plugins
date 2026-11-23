@@ -573,11 +573,11 @@ else:
 
 # ------------------------------------------------------------------ hardening (2026-09-28)
 print("\n[hardening: frozen surface, removed routes, mass assignment, directory, cross-department, budgets]")
-FROZEN_ROUTES = 118   # 117 after M10 F5 retired /contracts* (67931c0) + POST /maintenances/import (M8 native store, one-shot migration)
+FROZEN_ROUTES = 119   # +1 POST /auth/login/2fa (SEC-01 second login step, public like /auth/login); 118 = 117 after M10 F5 retired /contracts* (67931c0) + POST /maintenances/import (M8 native store, one-shot migration)
 oa = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ost-workflow", "docs", "openapi.json")))
 ops = [(m.upper(), p) for p, v in oa["paths"].items() for m in v if m in ("get", "post", "put", "patch", "delete")]
 check("frozen surface: %d routes in the OpenAPI generated from the route table" % FROZEN_ROUTES, len(ops) == FROZEN_ROUTES, "found %d" % len(ops))
-public = {("GET", "/ping"), ("POST", "/auth/login")}
+public = {("GET", "/ping"), ("POST", "/auth/login"), ("POST", "/auth/login/2fa")}
 noauth = []
 for m, p in ops:
     if (m, p) in public:
