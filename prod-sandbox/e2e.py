@@ -1579,7 +1579,7 @@ else:
     check("replaying the batch with the same key is a new request, and the per-item ids still make it idempotent (no duplicates)", [x["result"] for x in call("POST", "/maintenances/batch", {"items": items[:3]}, token=TOK, key=KEY).data] == ["exists"] * 3 and mcount() == n_before)
     check("no hard delete: no maintenance route uses DELETE (405) and every id created in this run is still stored",
           call("DELETE", "/maintenances/%s" % a1, token=TOK).status == 405 and all(mrow(i) is not None for i in (a1, a2, b1, b2)))
-    check("enable() is idempotent and creates no table: re-running it keeps every record", subprocess.run([os.path.expanduser("~/development/ost-prod/php80/bin/php"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin-admin.php"), os.path.expanduser("~/development/ost-sandbox/app"), "enable"], capture_output=True, text=True).stdout.startswith("enabled")
+    check("enable() is idempotent and creates no table: re-running it keeps every record", subprocess.run([os.path.expanduser("~/development/ost-prod/php80/bin/php"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin-admin.php"), os.path.join(os.environ.get("SANDBOX_HOME", os.path.expanduser("~/development/ost-sandbox")), "app"), "enable"], capture_output=True, text=True).stdout.startswith("enabled")
           and mcount() == n_before and OLDTAB == (sql("select table_name from information_schema.tables where table_schema=database() and table_name='ost_workflow_maintenance'") == ["ost_workflow_maintenance"]))
     # fixture state: list, equipment items, tickets and maintenance records are RETAINED INTENTIONALLY (records are never deleted by design)
 

@@ -2,7 +2,7 @@
 
 return array(
     'id' =>             '2fa:auth', # notrans
-    'version' =>        '0.3',
+    'version' =>        '0.3-bcw1',
     'name' =>           /* trans */ 'Two Factor Authenticator',
     'author' =>         'Adriane Alexander',
     'description' =>    /* trans */ 'Provides 2 Factor Authentication

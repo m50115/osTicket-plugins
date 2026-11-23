@@ -28,6 +28,12 @@ final class Auth {
         if (self::hasSecondFactor($staff) ? empty($payload['mfa']) : self::setupRequired($staff))
             throw new ApiError('unauthorized', 'The second-factor policy of this account changed; sign in again', null,
                 ['reason' => 'second_factor_policy']);
+        // SEC-01 (review2 H1, fail closed): a selected second factor whose backend is no longer registered (plugin disabled or
+        // removed) cannot be honoured: tokens of that agent stop working until the backend is back or the factor is reset.
+        require_once(INCLUDE_DIR . 'class.auth.php');
+        if (self::hasSecondFactor($staff) && !\Staff2FABackend::lookup((string) $staff->get2FABackendId()))
+            throw new ApiError('unauthorized', 'The second factor of this account is not available on this server; sign in again', null,
+                ['reason' => 'second_factor_unavailable']);
         $req->staff = $staff;
         $req->tokenId = $payload;
         self::bindStaff($staff);
